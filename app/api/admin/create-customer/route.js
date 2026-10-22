@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 function tempPassword() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
-  const bytes = crypto.getRandomValues(new Uint8Array(10))
+  const bytes = crypto.getRandomValues(new Uint8Array(12))
   return Array.from(bytes, (b) => chars[b % chars.length]).join('')
 }
 
@@ -20,14 +20,17 @@ export async function POST(request) {
   if (me?.role !== 'admin') return NextResponse.json({ error: 'Admins only' }, { status: 403 })
 
   // 2. Read and check the request.
-  const { email, full_name, phone, flat_ids } = await request.json()
+  const { email, full_name, phone, flat_ids, password: chosen } = await request.json()
   if (!email || !Array.isArray(flat_ids) || flat_ids.length === 0) {
     return NextResponse.json({ error: 'Email and at least one flat are required' }, { status: 400 })
   }
   const cleanEmail = email.trim().toLowerCase()
 
   // 3. Create the login, or reuse it if this person already has one.
-  const password = tempPassword()
+  if (chosen && chosen.length < 8) {
+    return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
+  }
+  const password = chosen || tempPassword() 
   let customerId = null
   let existing = false
 
