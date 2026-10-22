@@ -29,15 +29,17 @@ First deployment: **860 Shukrawar Peth** (A Wing, B Wing). The data model suppor
 ## Features
 
 ### Administrator
-- **Dashboard**: total flats, total sales value, amount received, amount pending, collection progress, flats by status, highest balances due, and a per-wing breakdown
-- **Flat management**: searchable list, create, edit and delete
+- **Dashboard**: total flats, total sales value, amount received, amount pending, collection progress, flats by status (coloured badges), highest balances due, and a per-wing breakdown
+- **Flats list**: search, status filter chips, payment progress, login status, clickable rows
+- **Flat page**: a presentable view of one flat (balance, details, payment breakdown, documents, linked login) with an **Edit flat** button; the same page the customer sees
+- **Flat management**: create, edit and delete; the Save button stays disabled until the required fields are filled
 - **Account section** per flat: agreement value, stamp duty and registration, MSEB, legal, GST; additional charges (for example car parking) are configuration, not a schema change
-- **Document management**: site plan and agreement per flat, with drag-and-drop upload, replace and delete
-- **Customer logins**: create an account for a flat holder and link it to one or more flats
+- **Document management**: site plan and agreement per flat; choose files while adding a flat, or drag-and-drop, replace and delete when editing
+- **Customer logins**: create an account for a flat holder and link it to one or more flats; the password is random (hidden, with show, copy and regenerate) or typed by the admin, and is shown once after creation
 
 ### Flat holder
 - Email and password sign-in
-- Read-only view of their own flat(s): details, charges, total, received, balance, last-updated date
+- Read-only view of their own flat(s) with a balance-due card, details, charges, total, received, balance and last-updated date; customers with several flats switch between them with tabs
 - Secure download of their site plan and agreement
 - Owner flats with no financial data hide the payment section automatically
 
@@ -48,11 +50,13 @@ First deployment: **860 Shukrawar Peth** (A Wing, B Wing). The data model suppor
 | Layer | Technology |
 |---|---|
 | Framework | Next.js (App Router), React, JavaScript |
-| Styling | Tailwind CSS |
+| Styling | Tailwind CSS v4 (one brand colour defined in `app/globals.css`) |
 | Database | Supabase (PostgreSQL) |
 | Authentication | Supabase Auth, email and password |
 | File storage | Supabase Storage, private bucket |
 | Hosting | Vercel |
+
+The Supabase project runs in **Mumbai (ap-south-1)** for low latency in India.
 
 ---
 
@@ -85,12 +89,14 @@ app/
     page.js                         Dashboard
     flats/page.js                   Flats list
     flats/new/page.js               Create flat
-    flats/[id]/page.js              Edit flat and documents
+    flats/[id]/page.js              Flat page (shared view, admin mode)
+    flats/[id]/edit/page.js         Edit flat and documents
     customers/new/page.js           Create customer login
-  portal/page.js                    Flat holder view
+  portal/page.js                    Flat holder view (tabs for several flats)
   api/admin/create-customer/
     route.js                        Server-only user creation
 components/
+  FlatView.js                       Shared flat page (admin and customer)
   FlatForm.js                       Shared create and edit form
   FlatDocuments.js                  Site plan and agreement upload
 lib/
@@ -98,6 +104,7 @@ lib/
   supabaseAdmin.js                  Server-only client (secret key)
   format.js                         Currency formatting helpers
 schema.sql                          Tables, views, policies, storage rules, seed data
+import.mjs                          One-time Excel import (reads flats_import.json)
 ```
 
 ---
@@ -188,6 +195,23 @@ Create `.env.local` in the project root:
 Environment files are read at startup. Restart the dev server after changing them.
 
 Adding a charge type: add its name to `CHARGE_NAMES` at the top of `components/FlatForm.js`.
+
+### Theme
+
+Shared styles (`.card`, `.btn`, `.btn-primary`, `.badge-*`) and the brand colour live in `app/globals.css`. To change the accent colour, edit the four `--color-brand-*` values in the `@theme` block; every screen uses `brand-` classes.
+
+---
+
+## Data import
+
+The contractor's Excel sheet was converted once into `flats_import.json` (not committed, it holds customer data). Run from the project root, Node 20.6 or newer:
+
+```bash
+node --env-file=.env.local import.mjs          # dry run, writes nothing
+node --env-file=.env.local import.mjs --run    # real import (safe to repeat)
+```
+
+Rules used: a `SALE` status with a holder becomes `Sold`, without a holder `For Sale`; agreement `23771/24/09/2026` becomes number and date; joint holders are joined with ` & `; blank statuses stay empty. Flats with a total but no breakdown, or parts that do not add up to the sheet total, were held back and are entered by hand: A-301, A-402, B-408, B-505, B-606.
 
 ---
 
@@ -357,8 +381,8 @@ Every push to `main` produces a new production deployment. HTTPS certificates ar
 
 - [ ] Change-password page and email-based password reset (requires a transactional email provider; Supabase's built-in sender is heavily rate-limited)
 - [ ] Two-factor authentication for the administrator account
-- [ ] Flats list column showing login status, with unlink and reset actions
-- [ ] One-time import of the existing Excel records
+- [ ] Unlink and reset actions for customer logins (the flats list already shows login status)
+- [x] One-time import of the existing Excel records (five flats still to be entered by hand)
 - [ ] Screens for managing projects and wings
 - [ ] Additional dashboard cards based on the contractor's priorities
 - [ ] Marathi language support, if required
@@ -374,7 +398,7 @@ Every push to `main` produces a new production deployment. HTTPS certificates ar
 - [ ] Confirm public sign-ups are disabled
 - [ ] Verify isolation with two customers: neither may see the other's flats, charges or files
 - [ ] Review `npm audit` output
-- [ ] Verify entered data against the source sheet, and confirm the corrected figures for flats 408, 505 and 301
+- [ ] Verify entered data against the source sheet, and enter the corrected figures for the five held-back flats (A-301, A-402, B-408, B-505, B-606) and confirm B-601's received amount
 
 ---
 
