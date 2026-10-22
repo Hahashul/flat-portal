@@ -1,23 +1,75 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 // To add car parking later, add 'Car parking' to this list.
-const CHARGE_NAMES = [
-  'Agreement value',
-  'Stamp duty & registration',
-  'MSEB',
-  'Legal',
-  'GST',
+const CHARGE_NAMES = ['Agreement value', 'Stamp duty & registration', 'MSEB', 'Legal', 'GST']
+const SLOTS = [
+  { kind: 'site_plan', label: 'Site plan' },
+  { kind: 'agreement', label: 'Agreement' },
 ]
 
-const input = 'w-full border rounded-lg px-3 py-2 bg-white text-gray-900'
+const input = 'w-full border border-slate-300 rounded-xl px-3 py-2.5 bg-white mt-1'
+const grid = 'grid grid-cols-1 sm:grid-cols-2 gap-4'
 
 const empty = {
   wing_id: '', flat_no: '', floor: '', carpet_sqm: '', carpet_sqft: '',
   status: '', holder_name: '', agreement_no: '', agreement_date: '',
   received_amount: '',
+}
+
+function Field({ label, required, className = '', children }) {
+  return (
+    <label className={`text-sm font-medium text-slate-700 block ${className}`}>
+      {label}{required && <span className="text-red-500"> *</span>}
+      {children}
+    </label>
+  )
+}
+
+function PendingSlot({ slot, file, onPick }) {
+  const ref = useRef(null)
+  const [error, setError] = useState('')
+
+  function choose(f) {
+    if (!f) return
+    const ok = f.type === 'application/pdf' || f.type.startsWith('image/')
+    if (!ok) return setError('Please choose a PDF or an image.')
+    if (f.size > 20 * 1024 * 1024) return setError('File is too large (maximum 20 MB).')
+    setError('')
+    onPick(f)
+  }
+
+  return (
+    <div className="border border-slate-200 rounded-xl p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium">{slot.label}</p>
+        {file ? (
+          <span className="badge badge-green">Selected</span>
+        ) : (
+          <span className="badge badge-gray">Optional</span>
+        )}
+      </div>
+      <input ref={ref} type="file" accept=".pdf,image/*" className="hidden"
+        onChange={(e) => choose(e.target.files?.[0])} />
+      <div className="flex items-center gap-3 mt-3">
+        <button type="button" className="btn" onClick={() => ref.current?.click()}>
+          {file ? 'Change file' : 'Choose file'}
+        </button>
+        {file && (
+          <>
+            <span className="text-sm text-slate-600 truncate">{file.name}</span>
+            <button type="button" className="text-sm text-red-600 shrink-0"
+              onClick={() => { onPick(null); if (ref.current) ref.current.value = '' }}>
+              Remove
+            </button>
+          </>
+        )}
+      </div>
+      {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+    </div>
+  )
 }
 
 export default function FlatForm({ flatId, children }) {
@@ -26,6 +78,7 @@ export default function FlatForm({ flatId, children }) {
   const [statuses, setStatuses] = useState([])
   const [form, setForm] = useState(empty)
   const [charges, setCharges] = useState({})
+  const [files, setFiles] = useState({})
   const [updatedAt, setUpdatedAt] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -62,8 +115,17 @@ export default function FlatForm({ flatId, children }) {
 
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
 
+  // Required fields. Holder is not needed for flats that are For Sale.
+  const missing = []
+  if (!form.wing_id) missing.push('wing')
+  if (!form.flat_no.trim()) missing.push('flat number')
+  if (!String(form.floor).trim()) missing.push('floor')
+  if (!form.status) missing.push('status')
+  if (form.status !== 'For Sale' && !String(form.holder_name).trim()) missing.push('holder name')
+
   async function save(e) {
     e.preventDefault()
+    if (missing.length) return
     setSaving(true)
     setError('')
 
@@ -105,7 +167,31 @@ export default function FlatForm({ flatId, children }) {
       if (err) return fail(err, 'Flat saved, but charges failed: ')
     }
 
-    router.push('/admin/flats')
+    // Upload files chosen on the Add page.
+    let uploadFailed = false
+    if (!flatId) {
+      for (const slot of SLOTS) {
+        const file = files[slot.kind]
+        if (!file) continue
+        const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const path = `flats/${id}/${Date.now()}-${safe}`
+        const { error: upErr } = await supabase.storage.from('documents').upload(path, file)
+        if (upErr) { uploadFailed = true; continue }
+        const { error: dbErr } = await supabase.from('documents').insert({
+          flat_id: id, kind: slot.kind, file_name: file.name, storage_path: path,
+        })
+        if (dbErr) {
+          await supabase.storage.from('documents').remove([path])
+          uploadFailed = true
+        }
+      }
+    }
+
+    if (uploadFailed) {
+      alert('The flat was saved, but a file did not upload. Please upload it again on this page.')
+      return router.push(`/admin/flats/${id}/edit`)
+    }
+    router.push(flatId ? `/admin/flats/${flatId}` : '/admin/flats')
   }
 
   function fail(err, prefix = '') {
@@ -124,95 +210,128 @@ export default function FlatForm({ flatId, children }) {
     router.push('/admin/flats')
   }
 
-  if (loading) return <p className="text-gray-500">Loading…</p>
+  if (loading) return <p className="text-slate-500">Loading…</p>
+
+    const actions = (
+    <div className="flex flex-wrap items-center gap-3">
+      <button disabled={saving || missing.length > 0} className="btn-primary">
+        {saving ? 'Saving…' : 'Save flat'}
+      </button>
+      <button type="button" className="btn"
+        onClick={() => router.push(flatId ? `/admin/flats/${flatId}` : '/admin/flats')}>
+        Cancel
+      </button>
+      {flatId && (
+        <button type="button" onClick={remove}
+          className="text-sm text-red-600 font-medium ml-auto">
+          Delete flat
+        </button>
+      )}
+      {missing.length > 0 && (
+        <p className="text-sm text-amber-700 basis-full">
+          Still needed: {missing.join(', ')}
+        </p>
+      )}
+    </div>
+  )
 
   return (
-    <form onSubmit={save} className="max-w-3xl space-y-8">
-      <h1 className="text-2xl font-semibold">{flatId ? 'Edit flat' : 'Add flat'}</h1>
+    <form onSubmit={save} className="max-w-6xl space-y-6">
+      <h1 className="text-2xl font-bold">{flatId ? 'Edit flat' : 'Add flat'}</h1>
 
-      <section className="bg-white rounded-xl shadow p-6 space-y-4">
-        <h2 className="font-medium">Flat details</h2>
-        <div className="grid grid-cols-2 gap-4">
-          <label className="text-sm">Wing
-            <select value={form.wing_id} onChange={set('wing_id')} required className={input}>
-              {wings.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </label>
-          <label className="text-sm">Flat number
-            <input value={form.flat_no} onChange={set('flat_no')} required className={input} />
-          </label>
-          <label className="text-sm">Floor
-            <input value={form.floor} onChange={set('floor')} placeholder="e.g. 2nd Floor" className={input} />
-          </label>
-          <label className="text-sm">Status
-            <select value={form.status} onChange={set('status')} className={input}>
-              <option value="">—</option>
-              {statuses.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
-            </select>
-          </label>
-          <label className="text-sm">Carpet area (sq.m)
-            <input type="number" step="0.01" value={form.carpet_sqm} onChange={set('carpet_sqm')} className={input} />
-          </label>
-          <label className="text-sm">Carpet area (sq.ft)
-            <input type="number" step="0.01" value={form.carpet_sqft} onChange={set('carpet_sqft')} className={input} />
-          </label>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* Left column */}
+        <div className="space-y-6">
+          <section className="card p-5 sm:p-6 space-y-4">
+            <h2 className="font-semibold">Flat details</h2>
+            <div className={grid}>
+              <Field label="Wing" required>
+                <select value={form.wing_id} onChange={set('wing_id')} className={input}>
+                  {wings.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Flat number" required>
+                <input value={form.flat_no} onChange={set('flat_no')} className={input} />
+              </Field>
+              <Field label="Floor" required>
+                <input value={form.floor} onChange={set('floor')} placeholder="e.g. 2nd Floor" className={input} />
+              </Field>
+              <Field label="Status" required>
+                <select value={form.status} onChange={set('status')} className={input}>
+                  <option value="">Select status</option>
+                  {statuses.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Carpet area (sq.m)">
+                <input type="number" inputMode="decimal" step="0.01" value={form.carpet_sqm}
+                  onChange={set('carpet_sqm')} className={input} />
+              </Field>
+              <Field label="Carpet area (sq.ft)">
+                <input type="number" inputMode="decimal" step="0.01" value={form.carpet_sqft}
+                  onChange={set('carpet_sqft')} className={input} />
+              </Field>
+            </div>
+          </section>
+
+          <section className="card p-5 sm:p-6 space-y-4">
+            <h2 className="font-semibold">Holder and agreement</h2>
+            <div className={grid}>
+              <Field label="Name of flat holder(s)" required={form.status !== 'For Sale'} className="sm:col-span-2">
+                <input value={form.holder_name} onChange={set('holder_name')}
+                  placeholder="Joint holders: Name 1 & Name 2" className={input} />
+              </Field>
+              <Field label="Agreement number">
+                <input value={form.agreement_no} onChange={set('agreement_no')} className={input} />
+              </Field>
+              <Field label="Agreement date">
+                <input type="date" value={form.agreement_date} onChange={set('agreement_date')} className={input} />
+              </Field>
+            </div>
+          </section>
+          <div className="hidden lg:block">{actions}</div>  
         </div>
-      </section>
 
-      <section className="bg-white rounded-xl shadow p-6 space-y-4">
-        <h2 className="font-medium">Holder and agreement</h2>
-        <div className="grid grid-cols-2 gap-4">
-          <label className="text-sm col-span-2">Name of flat holder(s)
-            <input value={form.holder_name} onChange={set('holder_name')} className={input} />
-          </label>
-          <label className="text-sm">Agreement number
-            <input value={form.agreement_no} onChange={set('agreement_no')} className={input} />
-          </label>
-          <label className="text-sm">Agreement date
-            <input type="date" value={form.agreement_date} onChange={set('agreement_date')} className={input} />
-          </label>
+        {/* Right column */}
+        <div className="space-y-6">
+          <section className="card p-5 sm:p-6 space-y-4">
+            <h2 className="font-semibold">Account (₹)</h2>
+            <div className={grid}>
+              {CHARGE_NAMES.map((n) => (
+                <Field key={n} label={n}>
+                  <input type="number" inputMode="decimal" step="0.01" value={charges[n] ?? ''}
+                    onChange={(e) => setCharges({ ...charges, [n]: e.target.value })} className={input} />
+                </Field>
+              ))}
+              <Field label="Received amount">
+                <input type="number" inputMode="decimal" step="0.01" value={form.received_amount}
+                  onChange={set('received_amount')} className={input} />
+              </Field>
+            </div>
+            <p className="text-xs text-slate-500">
+              Total and balance are calculated automatically.
+              {updatedAt && ` Last updated ${new Date(updatedAt).toLocaleString('en-IN')}.`}
+            </p>
+          </section>
+
+          {flatId ? children : (
+            <section className="card p-5 sm:p-6 space-y-4">
+              <div>
+                <h2 className="font-semibold">Documents</h2>
+                <p className="text-xs text-slate-500">Optional. The files upload when you save the flat.</p>
+              </div>
+              {SLOTS.map((slot) => (
+                <PendingSlot key={slot.kind} slot={slot} file={files[slot.kind]}
+                  onPick={(f) => setFiles({ ...files, [slot.kind]: f })} />
+              ))}
+            </section>
+          )}
         </div>
-      </section>
-
-      <section className="bg-white rounded-xl shadow p-6 space-y-4">
-        <h2 className="font-medium">Account (₹)</h2>
-        <div className="grid grid-cols-2 gap-4">
-          {CHARGE_NAMES.map((n) => (
-            <label key={n} className="text-sm">{n}
-              <input
-                type="number" step="0.01" value={charges[n] ?? ''}
-                onChange={(e) => setCharges({ ...charges, [n]: e.target.value })}
-                className={input}
-              />
-            </label>
-          ))}
-          <label className="text-sm">Received amount
-            <input type="number" step="0.01" value={form.received_amount} onChange={set('received_amount')} className={input} />
-          </label>
-        </div>
-        <p className="text-xs text-gray-500">
-          Total and balance are calculated automatically.
-          {updatedAt && ` Last updated ${new Date(updatedAt).toLocaleString('en-IN')}.`}
-        </p>
-      </section>
-
-      {children}
+      </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <div className="flex items-center gap-4">
-        <button disabled={saving} className="bg-black text-white rounded-lg px-6 py-2 disabled:opacity-50">
-          {saving ? 'Saving…' : 'Save flat'}
-        </button>
-        <button type="button" onClick={() => router.push('/admin/flats')} className="text-sm underline">
-          Cancel
-        </button>
-        {flatId && (
-          <button type="button" onClick={remove} className="text-sm text-red-600 underline ml-auto">
-            Delete flat
-          </button>
-        )}
-      </div>
+      {/* Save buttons, at the end of the form */}
+      <div className="lg:hidden">{actions}</div>
     </form>
   )
 }

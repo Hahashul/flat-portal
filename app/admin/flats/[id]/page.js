@@ -1,13 +1,8 @@
 'use client'
 import { useParams } from 'next/navigation'
-import FlatForm from '@/components/FlatForm'
-import FlatDocuments from '@/components/FlatDocuments'
+import FlatView from '@/components/FlatView'
 
-export default function EditFlat() {
+export default function FlatPage() {
   const { id } = useParams()
-  return (
-    <FlatForm flatId={id}>
-      <FlatDocuments flatId={id} />
-    </FlatForm>
-  )
+  return <FlatView flatId={id} admin />
 }
