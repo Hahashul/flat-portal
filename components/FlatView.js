@@ -11,6 +11,8 @@ const SLOTS = [
   { kind: 'site_plan', label: 'Site plan' },
   { kind: 'agreement', label: 'Agreement' },
 ]
+const input = 'w-full border border-slate-300 rounded-xl px-3 py-2.5 bg-white mt-1'
+const today = () => new Date().toISOString().slice(0, 10)
 
 function Info({ label, value }) {
   return (
@@ -21,22 +23,26 @@ function Info({ label, value }) {
   )
 }
 
-export default function FlatView({ flatId, admin = false }) {
+export default function FlatView({ flatId }) {
   const [d, setD] = useState(null)
+  const [tick, setTick] = useState(0)
+  const [adding, setAdding] = useState(false)
+  const [pay, setPay] = useState({ amount: '', paid_on: today(), note: '' })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
 
   useEffect(() => {
     let off = false
     async function load() {
-      setD(null)
       const { data: f } = await supabase.from('flat_summary').select('*').eq('id', flatId).single()
       if (!f) return !off && setD({ missing: true })
-      const [{ data: c }, { data: w }, { data: docs }, { data: prof }] = await Promise.all([
+      const { data: w } = await supabase.from('wings')
+        .select('name, project_id, current_stage_id').eq('id', f.wing_id).single()
+      const [{ data: c }, { data: docs }, { data: st }, { data: pays }] = await Promise.all([
         supabase.from('flat_charges').select('name, amount').eq('flat_id', flatId),
-        supabase.from('wings').select('name').eq('id', f.wing_id).single(),
         supabase.from('documents').select('*').eq('flat_id', flatId).order('uploaded_at', { ascending: false }),
-        admin && f.customer_id
-          ? supabase.from('profiles').select('full_name, phone').eq('id', f.customer_id).single()
-          : Promise.resolve({ data: null }),
+        supabase.from('stages').select('id, position, name, percent').eq('project_id', w.project_id).order('position'),
+        supabase.from('payments').select('*').eq('flat_id', flatId).order('paid_on', { ascending: false }),
       ])
       let urls = {}
       if (docs?.length) {
@@ -44,27 +50,48 @@ export default function FlatView({ flatId, admin = false }) {
           .createSignedUrls(docs.map((x) => x.storage_path), 3600)
         urls = Object.fromEntries((s || []).map((x) => [x.path, x.signedUrl]))
       }
-      if (!off) setD({ f, charges: c || [], wing: w?.name, docs: docs || [], urls, prof })
+      if (!off) setD({ f, charges: c || [], wing: w?.name, curStage: w?.current_stage_id,
+        stages: st || [], pays: pays || [], docs: docs || [], urls })
     }
     load()
     return () => { off = true }
-  }, [flatId, admin])
+  }, [flatId, tick])
+
+  async function addPayment(e) {
+    e.preventDefault()
+    setSaving(true); setErr('')
+    const { error } = await supabase.from('payments').insert({
+      flat_id: flatId, amount: Number(pay.amount), paid_on: pay.paid_on, note: pay.note || null,
+    })
+    setSaving(false)
+    if (error) return setErr(error.message)
+    setPay({ amount: '', paid_on: today(), note: '' })
+    setAdding(false)
+    setTick((t) => t + 1)
+  }
+
+  async function delPayment(id) {
+    if (!confirm('Delete this payment?')) return
+    await supabase.from('payments').delete().eq('id', id)
+    setTick((t) => t + 1)
+  }
 
   if (!d) return <p className="text-slate-500">Loading…</p>
   if (d.missing) return <p className="text-slate-500">Flat not found.</p>
 
-  const { f, charges, wing, docs, urls, prof } = d
-  const showMoney = charges.length > 0 || Number(f.received_amount) > 0
-  const total = Number(f.total_amount || 0)
+  const { f, charges, wing, curStage, stages, pays, docs, urls } = d
+  const agreement = Number(f.agreement_value || 0)
   const received = Number(f.received_amount || 0)
-  const balance = Number(f.balance_amount || 0)
-  const pct = total ? Math.min(100, (received / total) * 100) : 0
+  const due = Number(f.due_now || 0)
+  const pct = agreement ? Math.min(100, (received / agreement) * 100) : 0
+  const curPos = stages.find((s) => s.id === curStage)?.position || 0
+  const first = (f.holder_name || '').split(/&|,/)[0].trim()
+  const msg = `Hello ${first}, as per the agreement the ${f.stage_name} stage is complete. Amount due: ${inr(due)}. Kindly arrange the payment. Thank you.`
+  const wa = f.phone && due > 0 ? `https://wa.me/91${f.phone}?text=${encodeURIComponent(msg)}` : null
 
   return (
     <div className="space-y-6 max-w-5xl">
-      {admin && (
-        <Link href="/admin/flats" className="text-sm text-slate-500 hover:text-slate-800">‹ All flats</Link>
-      )}
+      <Link href="/admin/flats" className="text-sm text-slate-500 hover:text-slate-800">‹ All flats</Link>
 
       <section className="card p-5 sm:p-6">
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -74,31 +101,27 @@ export default function FlatView({ flatId, admin = false }) {
               <span className={`badge ${BADGE[f.status] || 'badge-gray'}`}>{f.status || 'No status'}</span>
             </div>
             <p className="text-slate-600 mt-1">{f.holder_name || 'No holder added'}</p>
+            {f.phone && <p className="text-sm text-slate-500">+91 {f.phone}</p>}
           </div>
-          {admin && <Link href={`/admin/flats/${f.id}/edit`} className="btn-primary">Edit flat</Link>}
+          <Link href={`/admin/flats/${f.id}/edit`} className="btn-primary">Edit flat</Link>
         </div>
-        {admin && (
-          <p className="text-sm mt-3 text-slate-500">
-            Customer login:{' '}
-            {f.customer_id
-              ? <span className="font-medium text-green-700">Linked{prof?.full_name ? ` · ${prof.full_name}` : ''}{prof?.phone ? ` · ${prof.phone}` : ''}</span>
-              : <span className="font-medium text-amber-700">Not created yet</span>}
-          </p>
-        )}
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {showMoney && (
+        {f.is_sale && (
           <section className="card p-5 sm:p-6">
-            <p className="text-sm text-slate-500">{balance > 0 ? 'Balance due' : 'Fully paid'}</p>
-            <p className={`text-3xl font-bold mt-1 ${balance > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-              {inr(balance)}
+            <p className="text-sm text-slate-500">
+              {f.stage_name ? `Due now (${f.stage_name}, ${Number(f.stage_percent)}%)` : 'No stage set for this wing yet'}
             </p>
+            <p className={`text-3xl font-bold mt-1 ${due > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+              {inr(due)}
+            </p>
+            {wa && <a href={wa} target="_blank" rel="noreferrer" className="btn-primary mt-3 inline-block">Send WhatsApp reminder</a>}
             <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden mt-4">
               <div className="h-full bg-green-600 rounded-full" style={{ width: `${pct}%` }} />
             </div>
             <p className="text-sm text-slate-500 mt-2">
-              {inr(received)} received of {inr(total)} ({pct.toFixed(0)}%)
+              {inr(received)} received of {inr(agreement)} agreement value ({pct.toFixed(0)}%)
             </p>
           </section>
         )}
@@ -113,9 +136,83 @@ export default function FlatView({ flatId, admin = false }) {
           </dl>
         </section>
 
-        {showMoney && (
+        {f.is_sale && (
           <section className="card p-5 sm:p-6">
-            <h2 className="font-semibold mb-2">Payment details</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold">Payments</h2>
+              {!adding && <button className="btn" onClick={() => setAdding(true)}>Add payment</button>}
+            </div>
+
+            {adding && (
+              <form onSubmit={addPayment} className="space-y-3 mb-4 border border-slate-200 rounded-xl p-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-sm font-medium text-slate-700">Amount (₹)
+                    <input type="number" inputMode="decimal" required min="1" value={pay.amount}
+                      onChange={(e) => setPay({ ...pay, amount: e.target.value })} className={input} />
+                  </label>
+                  <label className="text-sm font-medium text-slate-700">Date
+                    <input type="date" required value={pay.paid_on}
+                      onChange={(e) => setPay({ ...pay, paid_on: e.target.value })} className={input} />
+                  </label>
+                </div>
+                <label className="text-sm font-medium text-slate-700 block">Note (optional)
+                  <input value={pay.note} onChange={(e) => setPay({ ...pay, note: e.target.value })}
+                    placeholder="e.g. cheque no., cash" className={input} />
+                </label>
+                {err && <p className="text-sm text-red-600">{err}</p>}
+                <div className="flex gap-3">
+                  <button disabled={saving || !pay.amount} className="btn-primary">{saving ? 'Saving…' : 'Save payment'}</button>
+                  <button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button>
+                </div>
+              </form>
+            )}
+
+            {pays.length === 0 ? (
+              <p className="text-sm text-slate-500">No payments yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {pays.map((p) => (
+                  <li key={p.id} className="py-2.5 flex items-center justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium">{inr(p.amount)}</p>
+                      <p className="text-xs text-slate-500 truncate">
+                        {new Date(p.paid_on).toLocaleDateString('en-IN')}{p.note ? ` · ${p.note}` : ''}
+                      </p>
+                    </div>
+                    <button className="text-xs text-red-600 shrink-0" onClick={() => delPayment(p.id)}>Delete</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        {f.is_sale && stages.length > 0 && (
+          <section className="card p-5 sm:p-6">
+            <h2 className="font-semibold mb-3">Stages</h2>
+            <ol className="space-y-2.5">
+              {stages.map((s) => {
+                const reached = s.position <= curPos
+                return (
+                  <li key={s.id} className="flex items-center gap-3 text-sm">
+                    <span className={`h-5 w-5 rounded-full shrink-0 flex items-center justify-center text-[10px] text-white ${reached ? 'bg-green-600' : 'bg-slate-200'}`}>
+                      {reached ? '✓' : ''}
+                    </span>
+                    <span className={`flex-1 ${reached ? '' : 'text-slate-400'}`}>{s.name}</span>
+                    <span className="text-slate-500">{Number(s.percent)}%</span>
+                    <span className={`w-24 text-right ${reached ? 'font-medium' : 'text-slate-400'}`}>
+                      {inr(agreement * Number(s.percent) / 100)}
+                    </span>
+                  </li>
+                )
+              })}
+            </ol>
+          </section>
+        )}
+
+        {charges.length > 0 && (
+          <section className="card p-5 sm:p-6">
+            <h2 className="font-semibold mb-2">Charges</h2>
             <table className="w-full text-sm">
               <tbody>
                 {charges.map((c) => (
@@ -124,22 +221,12 @@ export default function FlatView({ flatId, admin = false }) {
                     <td className="py-2.5 text-right">{inr(c.amount)}</td>
                   </tr>
                 ))}
-                <tr className="border-b border-slate-100 font-semibold">
-                  <td className="py-2.5">Total</td><td className="py-2.5 text-right">{inr(total)}</td>
-                </tr>
-                <tr className="border-b border-slate-100">
-                  <td className="py-2.5 text-slate-600">Received</td>
-                  <td className="py-2.5 text-right text-green-700">{inr(received)}</td>
-                </tr>
-                <tr className="font-bold">
-                  <td className="py-2.5">Balance</td>
-                  <td className="py-2.5 text-right text-amber-700">{inr(balance)}</td>
+                <tr className="font-semibold">
+                  <td className="py-2.5">Total</td>
+                  <td className="py-2.5 text-right">{inr(f.total_amount)}</td>
                 </tr>
               </tbody>
             </table>
-            <p className="text-xs text-slate-500 mt-2">
-              Last updated {new Date(f.updated_at).toLocaleDateString('en-IN')}
-            </p>
           </section>
         )}
 
@@ -154,9 +241,7 @@ export default function FlatView({ flatId, admin = false }) {
                     <p className="font-medium text-sm">{s.label}</p>
                     <p className="text-xs text-slate-500 truncate">{doc ? doc.file_name : 'Not uploaded'}</p>
                   </div>
-                  {doc && (
-                    <a href={urls[doc.storage_path]} target="_blank" rel="noreferrer" className="btn shrink-0">View</a>
-                  )}
+                  {doc && <a href={urls[doc.storage_path]} target="_blank" rel="noreferrer" className="btn shrink-0">View</a>}
                 </div>
               )
             })}

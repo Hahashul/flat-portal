@@ -15,8 +15,7 @@ const grid = 'grid grid-cols-1 sm:grid-cols-2 gap-4'
 
 const empty = {
   wing_id: '', flat_no: '', floor: '', carpet_sqm: '', carpet_sqft: '',
-  status: '', holder_name: '', agreement_no: '', agreement_date: '',
-  received_amount: '',
+  status: '', holder_name: '', phone: '', agreement_no: '', agreement_date: '',
 }
 
 function Field({ label, required, className = '', children }) {
@@ -137,9 +136,9 @@ export default function FlatForm({ flatId, children }) {
       carpet_sqft: form.carpet_sqft || null,
       status: form.status || null,
       holder_name: form.holder_name || null,
+      phone: form.phone.replace(/\D/g, '').slice(-10) || null,
       agreement_no: form.agreement_no || null,
       agreement_date: form.agreement_date || null,
-      received_amount: form.received_amount || 0,
     }
 
     let id = flatId
@@ -280,6 +279,10 @@ export default function FlatForm({ flatId, children }) {
                 <input value={form.holder_name} onChange={set('holder_name')}
                   placeholder="Joint holders: Name 1 & Name 2" className={input} />
               </Field>
+               <Field label="Phone (for WhatsApp)">
+                <input type="tel" inputMode="numeric" value={form.phone} onChange={set('phone')}
+                  placeholder="10-digit mobile number" className={input} />
+              </Field>
               <Field label="Agreement number">
                 <input value={form.agreement_no} onChange={set('agreement_no')} className={input} />
               </Field>
@@ -302,10 +305,6 @@ export default function FlatForm({ flatId, children }) {
                     onChange={(e) => setCharges({ ...charges, [n]: e.target.value })} className={input} />
                 </Field>
               ))}
-              <Field label="Received amount">
-                <input type="number" inputMode="decimal" step="0.01" value={form.received_amount}
-                  onChange={set('received_amount')} className={input} />
-              </Field>
             </div>
             <p className="text-xs text-slate-500">
               Total and balance are calculated automatically.
