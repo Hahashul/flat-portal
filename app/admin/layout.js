@@ -9,6 +9,7 @@ const links = [
   { href: '/admin/flats', label: 'Flats', icon: 'M4 21V5l8-3 8 3v16M9 9h2m4 0h-2M9 13h2m4 0h-2M9 17h6' },
   { href: '/admin/flats/new', label: 'Add flat', icon: 'M12 5v14M5 12h14' },
   { href: '/admin/customers/new', label: 'Add customer', icon: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6' },
+  { href: '/admin/stages', label: 'Stages', icon: 'M4 6h16M4 12h16M4 18h16' },
 ]
 
 function Icon({ d }) {

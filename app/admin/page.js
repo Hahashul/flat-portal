@@ -17,12 +17,13 @@ export default function Dashboard() {
   const [wings, setWings] = useState([])
   const [stages, setStages] = useState([])
   const [loading, setLoading] = useState(true)
-
+  const [tax, setTax] = useState(false)
+  
   async function load() {
     const [{ data: f }, { data: w }, { data: s }] = await Promise.all([
       supabase.from('flat_summary').select('*'),
       supabase.from('wings').select('id, name, current_stage_id').order('name'),
-      supabase.from('stages').select('id, name, percent, position').order('position'),
+      supabase.from('stages').select('id, name, position').order('position'),
     ])
     setFlats(f || []); setWings(w || []); setStages(s || []); setLoading(false)
   }
@@ -35,7 +36,9 @@ export default function Dashboard() {
 
   if (loading) return <p className="text-slate-500">Loading…</p>
 
-  const sold = flats.filter((f) => f.is_sale)
+  const sold = flats
+    .map((f) => ({ ...f, due_now: tax ? f.due_with_charges : f.due_now }))
+    .filter((f) => f.is_sale)
   const agreement = sum(sold, 'agreement_value')
   const received = sum(sold, 'received_amount')
   const dueNow = sum(sold, 'due_now')
@@ -45,7 +48,15 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <div className="flex gap-2">
+          {[['Basic due', false], ['Due with charges', true]].map(([l, v]) => (
+            <button key={l} onClick={() => setTax(v)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium border ${tax === v ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-300'}`}>{l}</button>
+          ))}
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[
@@ -71,7 +82,7 @@ export default function Dashboard() {
               <select value={w.current_stage_id || ''} onChange={(e) => setStage(w.id, e.target.value)}
                 className="w-full border border-slate-300 rounded-xl px-3 py-2.5 bg-white mt-1">
                 <option value="">Not started</option>
-                {stages.map((s) => <option key={s.id} value={s.id}>{s.name} ({Number(s.percent)}%)</option>)}
+                {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </label>
           ))}

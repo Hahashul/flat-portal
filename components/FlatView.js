@@ -29,7 +29,7 @@ export default function FlatView({ flatId }) {
   const [adding, setAdding] = useState(false)
   const [pay, setPay] = useState({ amount: '', paid_on: today(), note: '' })
   const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState('')
+  const [tax, setTax] = useState(false)
 
   useEffect(() => {
     let off = false
@@ -38,11 +38,12 @@ export default function FlatView({ flatId }) {
       if (!f) return !off && setD({ missing: true })
       const { data: w } = await supabase.from('wings')
         .select('name, project_id, current_stage_id').eq('id', f.wing_id).single()
-      const [{ data: c }, { data: docs }, { data: st }, { data: pays }] = await Promise.all([
+      const [{ data: c }, { data: docs }, { data: st }, { data: pays }, { data: fi }] = await Promise.all([
         supabase.from('flat_charges').select('name, amount').eq('flat_id', flatId),
         supabase.from('documents').select('*').eq('flat_id', flatId).order('uploaded_at', { ascending: false }),
-        supabase.from('stages').select('id, position, name, percent').eq('project_id', w.project_id).order('position'),
+supabase.from('stages').select('id, position, name').eq('project_id', w.project_id).order('position'),
         supabase.from('payments').select('*').eq('flat_id', flatId).order('paid_on', { ascending: false }),
+        supabase.from('flat_installments').select('stage_id, percent').eq('flat_id', flatId),
       ])
       let urls = {}
       if (docs?.length) {
@@ -51,7 +52,7 @@ export default function FlatView({ flatId }) {
         urls = Object.fromEntries((s || []).map((x) => [x.path, x.signedUrl]))
       }
       if (!off) setD({ f, charges: c || [], wing: w?.name, curStage: w?.current_stage_id,
-        stages: st || [], pays: pays || [], docs: docs || [], urls })
+        stages: st || [], inst: fi || [], pays: pays || [], docs: docs || [], urls })
     }
     load()
     return () => { off = true }
@@ -79,10 +80,13 @@ export default function FlatView({ flatId }) {
   if (!d) return <p className="text-slate-500">Loading…</p>
   if (d.missing) return <p className="text-slate-500">Flat not found.</p>
 
-  const { f, charges, wing, curStage, stages, pays, docs, urls } = d
+  const { f, charges, wing, curStage, stages, inst, pays, docs, urls } = d
+  const rows = stages
+    .filter((s) => inst.some((i) => i.stage_id === s.id))
+    .map((s) => ({ ...s, percent: Number(inst.find((i) => i.stage_id === s.id).percent) }))
   const agreement = Number(f.agreement_value || 0)
   const received = Number(f.received_amount || 0)
-  const due = Number(f.due_now || 0)
+  const due = Number((tax ? f.due_with_charges : f.due_now) || 0)
   const pct = agreement ? Math.min(100, (received / agreement) * 100) : 0
   const curPos = stages.find((s) => s.id === curStage)?.position || 0
   const first = (f.holder_name || '').split(/&|,/)[0].trim()
@@ -111,9 +115,15 @@ export default function FlatView({ flatId }) {
         {f.is_sale && (
           <section className="card p-5 sm:p-6">
             <p className="text-sm text-slate-500">
-              {f.stage_name ? `Due now (${f.stage_name}, ${Number(f.stage_percent)}%)` : 'No stage set for this wing yet'}
+              {f.stage_name ? `Due now (up to ${f.stage_name})` : 'No stage set for this wing yet'}
             </p>
-            <p className={`text-3xl font-bold mt-1 ${due > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+            <div className="flex gap-2 mt-2">
+              {[['Basic', false], ['With charges', true]].map(([l, v]) => (
+                <button key={l} type="button" onClick={() => setTax(v)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium border ${tax === v ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-300'}`}>{l}</button>
+              ))}
+            </div>
+            <p className={`text-3xl font-bold mt-2 ${due > 0 ? 'text-amber-700' : 'text-green-700'}`}>
               {inr(due)}
             </p>
             {wa && <a href={wa} target="_blank" rel="noreferrer" className="btn-primary mt-3 inline-block">Send WhatsApp reminder</a>}
@@ -187,11 +197,11 @@ export default function FlatView({ flatId }) {
           </section>
         )}
 
-        {f.is_sale && stages.length > 0 && (
+        {f.is_sale && rows.length > 0 && (
           <section className="card p-5 sm:p-6">
             <h2 className="font-semibold mb-3">Stages</h2>
             <ol className="space-y-2.5">
-              {stages.map((s) => {
+              {rows.map((s) =>  {
                 const reached = s.position <= curPos
                 return (
                   <li key={s.id} className="flex items-center gap-3 text-sm">

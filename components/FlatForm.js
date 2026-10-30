@@ -29,7 +29,9 @@ function Field({ label, required, className = '', children }) {
 
 function PendingSlot({ slot, file, onPick }) {
   const ref = useRef(null)
-  const [error, setError] = useState('')
+  const [stages, setStages] = useState([])
+  const [templates, setTemplates] = useState([])
+  const [inst, setInst] = useState({})
 
   function choose(f) {
     if (!f) return
@@ -82,21 +84,31 @@ export default function FlatForm({ flatId, children }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [stages, setStages] = useState([])
+  const [templates, setTemplates] = useState([])
+  const [inst, setInst] = useState({})
 
   useEffect(() => {
     async function load() {
-      const [{ data: w }, { data: s }] = await Promise.all([
+      const [{ data: w }, { data: s }, { data: st }, { data: tp }] = await Promise.all([
         supabase.from('wings').select('id, name').order('name'),
-        supabase.from('statuses').select('name').order('name'),
+        supabase.from('statuses').select('name, counts_in_sales').order('name'),
+        supabase.from('stages').select('id, name, position').order('position'),
+        supabase.from('installment_templates')
+          .select('id, name, template_items(stage_id, percent)').order('name'),
       ])
       setWings(w || [])
       setStatuses(s || [])
+      setStages(st || [])
+      setTemplates(tp || [])
 
       if (flatId) {
-        const [{ data: flat }, { data: ch }] = await Promise.all([
+        const [{ data: flat }, { data: ch }, { data: fi }] = await Promise.all([
           supabase.from('flats').select('*').eq('id', flatId).single(),
           supabase.from('flat_charges').select('name, amount').eq('flat_id', flatId),
+          supabase.from('flat_installments').select('stage_id, percent').eq('flat_id', flatId),
         ])
+        setInst(Object.fromEntries((fi || []).map((x) => [x.stage_id, x.percent])))
         if (flat) {
           const filled = {}
           Object.keys(empty).forEach((k) => { filled[k] = flat[k] ?? '' })
@@ -113,6 +125,8 @@ export default function FlatForm({ flatId, children }) {
   }, [flatId])
 
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const isSale = !!statuses.find((s) => s.name === form.status)?.counts_in_sales
+  const instTotal = Math.round(stages.reduce((t, s) => t + (Number(inst[s.id]) || 0), 0) * 100) / 100
 
   // Required fields. Holder is not needed for flats that are For Sale.
   const missing = []
@@ -164,6 +178,21 @@ export default function FlatForm({ flatId, children }) {
       const { error: err } = await supabase
         .from('flat_charges').delete().eq('flat_id', id).in('name', drop)
       if (err) return fail(err, 'Flat saved, but charges failed: ')
+    }
+    if (isSale) {
+      const keepI = stages.filter((s) => Number(inst[s.id]) > 0)
+      const dropI = stages.filter((s) => !(Number(inst[s.id]) > 0))
+      if (keepI.length) {
+        const { error: err } = await supabase.from('flat_installments').upsert(
+          keepI.map((s) => ({ flat_id: id, stage_id: s.id, percent: Number(inst[s.id]) })),
+          { onConflict: 'flat_id,stage_id' })
+        if (err) return fail(err, 'Flat saved, but installments failed: ')
+      }
+      if (flatId && dropI.length) {
+        const { error: err } = await supabase.from('flat_installments')
+          .delete().eq('flat_id', id).in('stage_id', dropI.map((s) => s.id))
+        if (err) return fail(err, 'Flat saved, but installments failed: ')
+      }
     }
 
     // Upload files chosen on the Add page.
@@ -311,7 +340,35 @@ export default function FlatForm({ flatId, children }) {
               {updatedAt && ` Last updated ${new Date(updatedAt).toLocaleString('en-IN')}.`}
             </p>
           </section>
-
+          {isSale && (
+            <section className="card p-5 sm:p-6 space-y-4">
+              <h2 className="font-semibold">Installments (% of agreement value)</h2>
+              <select defaultValue="" className={input}
+                onChange={(e) => {
+                  const t = templates.find((x) => x.id === e.target.value)
+                  if (t) setInst(Object.fromEntries(t.template_items.map((i) => [i.stage_id, i.percent])))
+                  e.target.value = ''
+                }}>
+                <option value="">Fill from a template…</option>
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <div className="space-y-2">
+                {stages.map((s) => (
+                  <div key={s.id} className="flex items-center gap-3">
+                    <span className="flex-1 text-sm">{s.name}</span>
+                    <input type="number" inputMode="decimal" step="0.01" min="0"
+                      value={inst[s.id] ?? ''}
+                      onChange={(e) => setInst({ ...inst, [s.id]: e.target.value })}
+                      className="w-24 border border-slate-300 rounded-xl px-3 py-2 bg-white text-right" />
+                    <span className="text-sm text-slate-500">%</span>
+                  </div>
+                ))}
+              </div>
+              <p className={`text-sm ${instTotal === 100 ? 'text-green-700' : 'text-amber-700'}`}>
+                Total {instTotal}%{instTotal !== 100 && ' (should be 100%)'}
+              </p>
+            </section>
+          )}
           {flatId ? children : (
             <section className="card p-5 sm:p-6 space-y-4">
               <div>
