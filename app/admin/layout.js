@@ -3,7 +3,7 @@ import { Fragment, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
-import { LayoutDashboard, Building2, Plus, Layers, LogOut, Search, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, Building2, Plus, Layers, FolderOpen, LogOut, Search, Sun, Moon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -31,6 +31,7 @@ const links = [
   { href: '/admin', label: 'Home', icon: LayoutDashboard },
   { href: '/admin/flats', label: 'Flats', icon: Building2 },
   { href: '/admin/flats/new', label: 'Add flat', icon: Plus },
+  { href: '/admin/files', label: 'Files', icon: FolderOpen },
   { href: '/admin/stages', label: 'Stages', icon: Layers },
 ]
 
@@ -40,9 +41,19 @@ function isActive(l, pathname) {
   return pathname === l.href
 }
 
-function crumbs(pathname) {
+function crumbs(pathname, driveTrail = []) {
   const p = pathname.replace(/^\/admin\/?/, '').split('/').filter(Boolean)
   if (p[0] === 'stages') return [{ label: 'Stages' }]
+  if (p[0] === 'files') {
+    if (!driveTrail.length) return [{ label: 'Files' }]
+    return [
+      { label: 'Files', href: '/admin/files' },
+      ...driveTrail.map((t, i) => ({
+        label: t.name,
+        href: i < driveTrail.length - 1 ? `/admin/files?f=${t.id}` : undefined,
+      })),
+    ]
+  }
   if (p[0] === 'flats') {
     if (!p[1]) return [{ label: 'Flats' }]
     const out = [{ label: 'Flats', href: '/admin/flats' }]
@@ -103,6 +114,7 @@ export default function AdminLayout({ children }) {
   const [sbOpen, setSbOpen] = useState(true)
   const [cmdOpen, setCmdOpen] = useState(false)
   const [flats, setFlats] = useState([])
+  const [driveTrail, setDriveTrail] = useState([]) // folder path, sent by the Files page
 
   useEffect(() => {
     try { setSbOpen(localStorage.getItem('sb') !== '0') } catch {}
@@ -127,6 +139,12 @@ export default function AdminLayout({ children }) {
     }
     check()
   }, [router])
+
+  useEffect(() => {
+    const h = (e) => setDriveTrail(e.detail || [])
+    window.addEventListener('files-trail', h)
+    return () => window.removeEventListener('files-trail', h)
+  }, [])
 
   // Ctrl+K / Cmd+K opens search
   useEffect(() => {
@@ -171,7 +189,7 @@ export default function AdminLayout({ children }) {
     )
   }
 
-  const trail = crumbs(pathname)
+  const trail = crumbs(pathname, driveTrail)
 
   return (
     <TooltipProvider>
@@ -227,7 +245,7 @@ export default function AdminLayout({ children }) {
             <Breadcrumb className="hidden md:block">
               <BreadcrumbList>
                 {trail.map((c, i) => (
-                  <Fragment key={c.label + i}>
+                  <Fragment key={(c.href || c.label) + i}>
                     {i > 0 && <BreadcrumbSeparator />}
                     <BreadcrumbItem>
                       {i === trail.length - 1 || !c.href
@@ -281,7 +299,7 @@ export default function AdminLayout({ children }) {
           <div className="min-w-0 flex-1 p-4 pb-24 sm:p-6 md:p-8 md:pb-8">{children}</div>
 
           {/* Phone: bottom tab bar */}
-          <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
+          <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
             {links.map((l) => (
               <Link key={l.href} href={l.href}
                 className={`flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${

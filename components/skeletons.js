@@ -186,7 +186,7 @@ export function FlatViewSkeleton() {
         </div>
         <Skeleton className="h-9 w-full sm:w-72" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
         <div className="flex flex-col gap-4 lg:col-span-7">
           <Card className={PAD}>
             <CardHeadSkeleton />
@@ -245,7 +245,7 @@ export function FormSkeleton() {
         </div>
         <Skeleton className="hidden h-9 w-40 md:block" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
         <div className="flex flex-col gap-4">
           <FormCardSkeleton fields={6} />
           <FormCardSkeleton fields={5} />
@@ -278,6 +278,42 @@ export function StagesSkeleton() {
             </div>
           </Card>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* Files page (list view): same structure and heights as components/FilesView.js. */
+export function FilesSkeleton() {
+  return (
+    <div className="mx-auto flex max-w-7xl flex-col gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">Files</h1>
+          <div className="mt-1 flex h-5 items-center"><Skeleton className="h-4 w-56" /></div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-9 w-32 rounded-md" />
+          <Skeleton className="h-9 w-28 rounded-md" />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <Skeleton className="h-9 w-full max-w-sm rounded-md" />
+        <Skeleton className="h-9 w-24 rounded-lg" />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-4 rounded-xl border bg-card px-5 py-3.5">
+            <Skeleton className="size-5 shrink-0 rounded" />
+            <div className="min-w-0 flex-1">
+              <div className="flex h-5 items-center"><Skeleton className="h-4 w-48 max-w-full" /></div>
+              <div className="flex h-4 items-center"><Skeleton className="h-3 w-32" /></div>
+            </div>
+            <Skeleton className="size-8 shrink-0 rounded-md" />
+          </div>
+        ))}
       </div>
     </div>
   )

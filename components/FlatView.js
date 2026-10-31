@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { Check, MessageCircle, Plus, Trash2 } from 'lucide-react'
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import StatusBadge from '@/components/StatusBadge'
 import { FlatViewSkeleton } from '@/components/skeletons'
@@ -69,6 +70,8 @@ export default function FlatView({ flatId }) {
   const [saving, setSaving] = useState(false)
   const [pay, setPay] = useState({ amount: '', paid_on: today(), note: '' })
   const [showAllPays, setShowAllPays] = useState(false) // phone only
+  const [preset, setPreset] = useState('custom') // 'custom' | 'all' | stage id
+  const amountRef = useRef(null)
 
   useEffect(() => {
     let off = false
@@ -110,6 +113,7 @@ export default function FlatView({ flatId }) {
     if (error) return toast.error(error.message)
     toast.success(`Payment of ${inr(amount)} added`)
     setPay({ amount: '', paid_on: today(), note: '' })
+    setPreset('custom')
     setAdding(false)
     setTick((t) => t + 1)
   }
@@ -164,6 +168,24 @@ export default function FlatView({ flatId }) {
     const state = paid >= amt - 0.5 ? 'paid' : s.position <= curPos ? 'due' : 'later'
     return { ...s, amt, paid, state }
   })
+  // Payment presets: everything due now, plus each stage that is due and not fully paid
+  const presets = [
+    ...(due > 0 ? [{ key: 'all', label: tax ? 'All due now (with charges)' : 'All due now', amount: Math.round(due) }] : []),
+    ...steps
+      .filter((s) => s.state === 'due')
+      .map((s) => ({ key: s.id, label: s.name, amount: Math.round(s.amt - s.paid) }))
+      .filter((x) => x.amount > 0),
+  ]
+  function choosePreset(key) {
+    setPreset(key)
+    if (key === 'custom') {
+      setPay((p) => ({ ...p, amount: '' }))
+      setTimeout(() => amountRef.current?.focus(), 50)
+      return
+    }
+    const hit = presets.find((x) => x.key === key)
+    if (hit) setPay((p) => ({ ...p, amount: String(hit.amount) }))
+  }
   const first = (f.holder_name || '').split(/&|,/)[0].trim()
   const msg = `Hello ${first}, as per the agreement the ${f.stage_name} stage is complete. Amount due: ${inr(due)}. Kindly arrange the payment. Thank you.`
   const wa = f.phone && due > 0 ? `https://wa.me/91${f.phone}?text=${encodeURIComponent(msg)}` : null
@@ -413,33 +435,40 @@ export default function FlatView({ flatId }) {
           </SheetHeader>
           <form onSubmit={addPayment} className="flex flex-1 flex-col">
             <div className="flex-1 space-y-5 px-5 py-5 sm:px-6">
+              {presets.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="preset">Pay for</Label>
+                  <Select value={preset} onValueChange={choosePreset}>
+                    <SelectTrigger id="preset" className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {presets.map((x) => (
+                        <SelectItem key={x.key} value={x.key}>{x.label} · {inr(x.amount)}</SelectItem>
+                      ))}
+                      <SelectItem value="custom">Custom amount</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="amount">Amount (₹)</Label>
                 <Input
                   id="amount"
+                  ref={amountRef}
                   type="number"
                   inputMode="decimal"
                   required
                   min="1"
                   step="any"
-                  autoFocus
+                  autoFocus={presets.length === 0}
                   value={pay.amount}
-                  onChange={(e) => setPay({ ...pay, amount: e.target.value })}
+                  onChange={(e) => {
+                    setPay({ ...pay, amount: e.target.value })
+                    setPreset('custom')
+                  }}
                 />
-                <div className="flex items-center justify-between gap-3 text-xs">
-                  <span className="text-muted-foreground tabular-nums">
-                    {Number(pay.amount) > 0 ? inr(Number(pay.amount)) : ' '}
-                  </span>
-                  {due > 0 && (
-                    <button
-                      type="button"
-                      className="text-primary hover:underline"
-                      onClick={() => setPay((p) => ({ ...p, amount: String(Math.round(due)) }))}
-                    >
-                      Use due amount ({inr(due)})
-                    </button>
-                  )}
-                </div>
+                <p className="min-h-4 text-xs tabular-nums text-muted-foreground">
+                  {Number(pay.amount) > 0 ? inr(Number(pay.amount)) : ' '}
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="paid_on">Date</Label>
