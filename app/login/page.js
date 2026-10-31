@@ -1,11 +1,12 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-
-const input = 'w-full border border-slate-300 rounded-xl px-4 py-3 bg-white mt-1'
-const EYE = 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'
-const EYE_OFF = 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 export default function Login() {
   const router = useRouter()
@@ -29,49 +30,74 @@ export default function Login() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-4">
+    <main className="grid min-h-screen place-items-center bg-background p-4">
       <div className="w-full max-w-md">
-        <div className="text-center mb-6">
-          <span className="w-14 h-14 rounded-2xl bg-brand-600 text-white grid place-items-center text-2xl font-bold mx-auto">F</span>
-          <h1 className="text-2xl font-bold mt-4">Flat Portal</h1>
-          <p className="text-slate-500 text-sm mt-1">860 Shukrawar Peth</p>
+        <div className="mb-6 text-center">
+          <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary text-2xl font-bold text-primary-foreground">
+            F
+          </span>
+          <h1 className="mt-4 text-2xl font-semibold tracking-tight">Flat Portal</h1>
+          <p className="mt-1 text-sm text-muted-foreground">860 Shukrawar Peth</p>
         </div>
 
-        <form onSubmit={handleLogin} className="card p-6 sm:p-8 space-y-4">
-          <h2 className="text-lg font-semibold">Sign in to your account</h2>
-
-          <label className="text-sm font-medium text-slate-700 block">Email
-            <input type="email" required autoComplete="email" value={email}
-              onChange={(e) => setEmail(e.target.value)} className={input} />
-          </label>
-
-          <label className="text-sm font-medium text-slate-700 block">Password
-            <div className="relative">
-              <input type={showPw ? 'text' : 'password'} required autoComplete="current-password"
-                value={password} onChange={(e) => setPassword(e.target.value)}
-                className={input + ' pr-12'} />
-              <button type="button" onClick={() => setShowPw(!showPw)}
-                aria-label={showPw ? 'Hide password' : 'Show password'}
-                className="absolute inset-y-0 right-0 px-3 mt-1 text-slate-500 hover:text-slate-900">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d={showPw ? EYE_OFF : EYE} />
-                </svg>
-              </button>
+        <Card className="gap-0 p-6 sm:p-8">
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <h2 className="text-base font-semibold">Sign in</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Use your admin email and password</p>
             </div>
-          </label>
 
-          {error && (
-            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>
-          )}
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                autoFocus
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="h-10"
+              />
+            </div>
 
-          <button type="submit" disabled={loading || !email.trim() || !password}
-            className="btn-primary w-full !py-3">
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPw ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-10 pr-11"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((v) => !v)}
+                  aria-label={showPw ? 'Hide password' : 'Show password'}
+                  className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {showPw ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+            </div>
 
-        <p className="text-center text-xs text-slate-500 mt-4">
+            {error && (
+              <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+
+            <Button type="submit" className="h-10 w-full" disabled={loading || !email.trim() || !password}>
+              {loading && <Loader2 className="size-4 animate-spin" />}
+              {loading ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+        </Card>
+
+        <p className="mt-4 text-center text-xs text-muted-foreground">
           Forgot your password? Please contact the office.
         </p>
       </div>

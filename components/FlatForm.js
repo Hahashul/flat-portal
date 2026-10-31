@@ -1,7 +1,28 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
+import { Plus, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { inr } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import Section from '@/components/Section'
+import { FormSkeleton } from '@/components/skeletons'
+
+/*
+  Layout rule: 2 equal columns, cards in the same row stretch to the same height.
+  Row 1 details | holder, Row 2 account | documents, Row 3 installments (full), Row 4 delete (full).
+  Phone: one column, same order.
+*/
 
 // To add car parking later, add 'Car parking' to this list.
 const CHARGE_NAMES = ['Agreement value', 'Stamp duty & registration', 'MSEB', 'Legal', 'GST']
@@ -9,29 +30,31 @@ const SLOTS = [
   { kind: 'site_plan', label: 'Site plan' },
   { kind: 'agreement', label: 'Agreement' },
 ]
-
-const input = 'w-full border border-slate-300 rounded-xl px-3 py-2.5 bg-white mt-1'
-const grid = 'grid grid-cols-1 sm:grid-cols-2 gap-4'
+const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2'
+const OPTION =
+  'rounded-lg border p-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring'
+const OPTION_ON = 'border-primary bg-primary/5 hover:bg-primary/5'
+const GREEN = 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300'
 
 const empty = {
   wing_id: '', flat_no: '', floor: '', carpet_sqm: '', carpet_sqft: '',
   status: '', holder_name: '', phone: '', agreement_no: '', agreement_date: '',
 }
 
-function Field({ label, required, className = '', children }) {
+function Field({ id, label, required, className, children }) {
   return (
-    <label className={`text-sm font-medium text-slate-700 block ${className}`}>
-      {label}{required && <span className="text-red-500"> *</span>}
+    <div className={cn('space-y-2', className)}>
+      <Label htmlFor={id}>
+        {label}{required && <span className="text-destructive"> *</span>}
+      </Label>
       {children}
-    </label>
+    </div>
   )
 }
 
 function PendingSlot({ slot, file, onPick }) {
   const ref = useRef(null)
   const [error, setError] = useState('')
-  const [templates, setTemplates] = useState([])
-  const [inst, setInst] = useState({})
 
   function choose(f) {
     if (!f) return
@@ -43,32 +66,30 @@ function PendingSlot({ slot, file, onPick }) {
   }
 
   return (
-    <div className="border border-slate-200 rounded-xl p-4">
+    <div className="rounded-lg border p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="font-medium">{slot.label}</p>
-        {file ? (
-          <span className="badge badge-green">Selected</span>
-        ) : (
-          <span className="badge badge-gray">Optional</span>
-        )}
+        <p className="text-sm font-medium">{slot.label}</p>
+        <Badge variant="secondary" className={cn('border-0 font-medium', file ? GREEN : 'bg-muted text-muted-foreground')}>
+          {file ? 'Selected' : 'Optional'}
+        </Badge>
       </div>
       <input ref={ref} type="file" accept=".pdf,image/*" className="hidden"
         onChange={(e) => choose(e.target.files?.[0])} />
-      <div className="flex items-center gap-3 mt-3">
-        <button type="button" className="btn" onClick={() => ref.current?.click()}>
+      <div className="mt-3 flex items-center gap-3">
+        <Button type="button" size="sm" variant="outline" onClick={() => ref.current?.click()}>
           {file ? 'Change file' : 'Choose file'}
-        </button>
+        </Button>
         {file && (
           <>
-            <span className="text-sm text-slate-600 truncate">{file.name}</span>
-            <button type="button" className="text-sm text-red-600 shrink-0"
+            <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{file.name}</span>
+            <Button type="button" size="sm" variant="ghost" className="shrink-0 text-muted-foreground hover:text-destructive"
               onClick={() => { onPick(null); if (ref.current) ref.current.value = '' }}>
               Remove
-            </button>
+            </Button>
           </>
         )}
       </div>
-      {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
     </div>
   )
 }
@@ -86,8 +107,9 @@ export default function FlatForm({ flatId, children }) {
   const [error, setError] = useState('')
   const [stages, setStages] = useState([])
   const [templates, setTemplates] = useState([])
-  const [inst, setInst] = useState({})
-  
+  const [inst, setInst] = useState({}) // stage_id -> percent (string). A key means the stage is used.
+  const [custom, setCustom] = useState(false)
+
   useEffect(() => {
     async function load() {
       const [{ data: w }, { data: s }, { data: st }, { data: tp }] = await Promise.all([
@@ -108,7 +130,7 @@ export default function FlatForm({ flatId, children }) {
           supabase.from('flat_charges').select('name, amount').eq('flat_id', flatId),
           supabase.from('flat_installments').select('stage_id, percent').eq('flat_id', flatId),
         ])
-        setInst(Object.fromEntries((fi || []).map((x) => [x.stage_id, x.percent])))
+        setInst(Object.fromEntries((fi || []).map((x) => [x.stage_id, String(x.percent)])))
         if (flat) {
           const filled = {}
           Object.keys(empty).forEach((k) => { filled[k] = flat[k] ?? '' })
@@ -124,9 +146,39 @@ export default function FlatForm({ flatId, children }) {
     load()
   }, [flatId])
 
-  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const upd = (key, v) => setForm((f) => ({ ...f, [key]: v }))
+  const bind = (key) => ({ value: form[key], onChange: (e) => upd(key, e.target.value) })
+
   const isSale = !!statuses.find((s) => s.name === form.status)?.counts_in_sales
-  const instTotal = Math.round(stages.reduce((t, s) => t + (Number(inst[s.id]) || 0), 0) * 100) / 100
+  const chargeTotal = CHARGE_NAMES.reduce((t, n) => t + (Number(charges[n]) || 0), 0)
+
+  // Installments: which option is selected
+  const rowsI = stages.filter((s) => s.id in inst)
+  const unused = stages.filter((s) => !(s.id in inst))
+  const instTotal = Math.round(rowsI.reduce((t, s) => t + (Number(inst[s.id]) || 0), 0) * 100) / 100
+  const filledKeys = rowsI.filter((s) => Number(inst[s.id]) > 0)
+  const sameAs = (t) =>
+    filledKeys.length === t.template_items.length &&
+    t.template_items.every((i) => Number(inst[i.stage_id]) === Number(i.percent))
+  const matched = templates.find(sameAs)
+  const active = custom ? 'custom' : matched ? matched.id : rowsI.length ? 'custom' : null
+  const isCustom = active === 'custom'
+
+  function pickTemplate(t) {
+    setCustom(false)
+    setInst(Object.fromEntries(t.template_items.map((i) => [i.stage_id, String(i.percent)])))
+  }
+  function changeStage(oldId, newId) {
+    setInst((p) => Object.fromEntries(Object.entries(p).map(([k, v]) => [k === oldId ? newId : k, v])))
+  }
+  function removeStage(id) {
+    setInst((p) => { const n = { ...p }; delete n[id]; return n })
+  }
+  function addStage() {
+    if (!unused.length) return
+    setCustom(true)
+    setInst((p) => ({ ...p, [unused[0].id]: '' }))
+  }
 
   // Required fields. Holder is not needed for flats that are For Sale.
   const missing = []
@@ -135,6 +187,15 @@ export default function FlatForm({ flatId, children }) {
   if (!String(form.floor).trim()) missing.push('floor')
   if (!form.status) missing.push('status')
   if (form.status !== 'For Sale' && !String(form.holder_name).trim()) missing.push('holder name')
+
+  function fail(err, prefix = '') {
+    const msg = err.code === '23505'
+      ? 'That flat number already exists in this wing.'
+      : prefix + err.message
+    setError(msg)
+    toast.error(msg)
+    setSaving(false)
+  }
 
   async function save(e) {
     e.preventDefault()
@@ -216,178 +277,292 @@ export default function FlatForm({ flatId, children }) {
     }
 
     if (uploadFailed) {
-      alert('The flat was saved, but a file did not upload. Please upload it again on this page.')
+      toast.error('Flat saved, but a file did not upload. Please upload it again here.')
       return router.push(`/admin/flats/${id}/edit`)
     }
+    toast.success('Flat saved')
     router.push(flatId ? `/admin/flats/${flatId}` : '/admin/flats')
   }
 
-  function fail(err, prefix = '') {
-    setError(err.code === '23505'
-      ? 'That flat number already exists in this wing.'
-      : prefix + err.message)
-    setSaving(false)
-  }
-
   async function remove() {
-    if (!confirm('Delete this flat and all its charges and documents? This cannot be undone.')) return
     const { data: docs } = await supabase.from('documents').select('storage_path').eq('flat_id', flatId)
     if (docs?.length) await supabase.storage.from('documents').remove(docs.map((d) => d.storage_path))
     const { error: err } = await supabase.from('flats').delete().eq('id', flatId)
-    if (err) return setError(err.message)
+    if (err) return toast.error(err.message)
+    toast.success('Flat deleted')
     router.push('/admin/flats')
   }
 
-  if (loading) return <p className="text-slate-500">Loading…</p>
+  if (loading) return <FormSkeleton />
 
-    const actions = (
-    <div className="flex flex-wrap items-center gap-3">
-      <button disabled={saving || missing.length > 0} className="btn-primary">
-        {saving ? 'Saving…' : 'Save flat'}
-      </button>
-      <button type="button" className="btn"
-        onClick={() => router.push(flatId ? `/admin/flats/${flatId}` : '/admin/flats')}>
-        Cancel
-      </button>
-      {flatId && (
-        <button type="button" onClick={remove}
-          className="text-sm text-red-600 font-medium ml-auto">
-          Delete flat
-        </button>
-      )}
-      {missing.length > 0 && (
-        <p className="text-sm text-amber-700 basis-full">
-          Still needed: {missing.join(', ')}
-        </p>
-      )}
-    </div>
+  const cancel = () => router.push(flatId ? `/admin/flats/${flatId}` : '/admin/flats')
+  const needed = missing.length > 0 && (
+    <p className="text-xs text-muted-foreground">Still needed: {missing.join(', ')}</p>
   )
+  const saveBtn = (
+    <Button type="submit" disabled={saving || missing.length > 0}>{saving ? 'Saving…' : 'Save flat'}</Button>
+  )
+  const cancelBtn = <Button type="button" variant="outline" onClick={cancel}>Cancel</Button>
 
   return (
-    <form onSubmit={save} className="max-w-6xl space-y-6">
-      <h1 className="text-2xl font-bold">{flatId ? 'Edit flat' : 'Add flat'}</h1>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* Left column */}
-        <div className="space-y-6">
-          <section className="card p-5 sm:p-6 space-y-4">
-            <h2 className="font-semibold">Flat details</h2>
-            <div className={grid}>
-              <Field label="Wing" required>
-                <select value={form.wing_id} onChange={set('wing_id')} className={input}>
-                  {wings.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select>
-              </Field>
-              <Field label="Flat number" required>
-                <input value={form.flat_no} onChange={set('flat_no')} className={input} />
-              </Field>
-              <Field label="Floor" required>
-                <input value={form.floor} onChange={set('floor')} placeholder="e.g. 2nd Floor" className={input} />
-              </Field>
-              <Field label="Status" required>
-                <select value={form.status} onChange={set('status')} className={input}>
-                  <option value="">Select status</option>
-                  {statuses.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
-                </select>
-              </Field>
-              <Field label="Carpet area (sq.m)">
-                <input type="number" inputMode="decimal" step="0.01" value={form.carpet_sqm}
-                  onChange={set('carpet_sqm')} className={input} />
-              </Field>
-              <Field label="Carpet area (sq.ft)">
-                <input type="number" inputMode="decimal" step="0.01" value={form.carpet_sqft}
-                  onChange={set('carpet_sqft')} className={input} />
-              </Field>
-            </div>
-          </section>
-
-          <section className="card p-5 sm:p-6 space-y-4">
-            <h2 className="font-semibold">Holder and agreement</h2>
-            <div className={grid}>
-              <Field label="Name of flat holder(s)" required={form.status !== 'For Sale'} className="sm:col-span-2">
-                <input value={form.holder_name} onChange={set('holder_name')}
-                  placeholder="Joint holders: Name 1 & Name 2" className={input} />
-              </Field>
-               <Field label="Phone (for WhatsApp)">
-                <input type="tel" inputMode="numeric" value={form.phone} onChange={set('phone')}
-                  placeholder="10-digit mobile number" className={input} />
-              </Field>
-              <Field label="Agreement number">
-                <input value={form.agreement_no} onChange={set('agreement_no')} className={input} />
-              </Field>
-              <Field label="Agreement date">
-                <input type="date" value={form.agreement_date} onChange={set('agreement_date')} className={input} />
-              </Field>
-            </div>
-          </section>
-          <div className="hidden lg:block">{actions}</div>  
+    <form onSubmit={save} className="mx-auto flex max-w-7xl flex-col gap-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{flatId ? 'Edit flat' : 'Add flat'}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {flatId ? 'Update details, charges and installments' : 'Fill in the details of a new flat'}
+          </p>
         </div>
-
-        {/* Right column */}
-        <div className="space-y-6">
-          <section className="card p-5 sm:p-6 space-y-4">
-            <h2 className="font-semibold">Account (₹)</h2>
-            <div className={grid}>
-              {CHARGE_NAMES.map((n) => (
-                <Field key={n} label={n}>
-                  <input type="number" inputMode="decimal" step="0.01" value={charges[n] ?? ''}
-                    onChange={(e) => setCharges({ ...charges, [n]: e.target.value })} className={input} />
-                </Field>
-              ))}
-            </div>
-            <p className="text-xs text-slate-500">
-              Total and balance are calculated automatically.
-              {updatedAt && ` Last updated ${new Date(updatedAt).toLocaleString('en-IN')}.`}
-            </p>
-          </section>
-          {isSale && (
-            <section className="card p-5 sm:p-6 space-y-4">
-              <h2 className="font-semibold">Installments (% of agreement value)</h2>
-              <select defaultValue="" className={input}
-                onChange={(e) => {
-                  const t = templates.find((x) => x.id === e.target.value)
-                  if (t) setInst(Object.fromEntries(t.template_items.map((i) => [i.stage_id, i.percent])))
-                  e.target.value = ''
-                }}>
-                <option value="">Fill from a template…</option>
-                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-              <div className="space-y-2">
-                {stages.map((s) => (
-                  <div key={s.id} className="flex items-center gap-3">
-                    <span className="flex-1 text-sm">{s.name}</span>
-                    <input type="number" inputMode="decimal" step="0.01" min="0"
-                      value={inst[s.id] ?? ''}
-                      onChange={(e) => setInst({ ...inst, [s.id]: e.target.value })}
-                      className="w-24 border border-slate-300 rounded-xl px-3 py-2 bg-white text-right" />
-                    <span className="text-sm text-slate-500">%</span>
-                  </div>
-                ))}
-              </div>
-              <p className={`text-sm ${instTotal === 100 ? 'text-green-700' : 'text-amber-700'}`}>
-                Total {instTotal}%{instTotal !== 100 && ' (should be 100%)'}
-              </p>
-            </section>
-          )}
-          {flatId ? children : (
-            <section className="card p-5 sm:p-6 space-y-4">
-              <div>
-                <h2 className="font-semibold">Documents</h2>
-                <p className="text-xs text-slate-500">Optional. The files upload when you save the flat.</p>
-              </div>
-              {SLOTS.map((slot) => (
-                <PendingSlot key={slot.kind} slot={slot} file={files[slot.kind]}
-                  onPick={(f) => setFiles({ ...files, [slot.kind]: f })} />
-              ))}
-            </section>
-          )}
+        <div className="hidden items-center gap-4 md:flex">
+          {needed}
+          {cancelBtn}
+          {saveBtn}
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {/* Two equal columns. Cards in the same row stretch to the same height. */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Row 1 */}
+        <Section title="Flat details" sub="Where the flat is and how big">
+          <div className={GRID}>
+            <Field id="wing" label="Wing" required>
+              <Select value={form.wing_id} onValueChange={(v) => upd('wing_id', v)}>
+                <SelectTrigger id="wing" className="w-full"><SelectValue placeholder="Select wing" /></SelectTrigger>
+                <SelectContent>
+                  {wings.map((w) => <SelectItem key={w.id} value={w.id}>Wing {w.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field id="flat_no" label="Flat number" required>
+              <Input id="flat_no" {...bind('flat_no')} />
+            </Field>
+            <Field id="floor" label="Floor" required>
+              <Input id="floor" placeholder="e.g. 2nd Floor" {...bind('floor')} />
+            </Field>
+            <Field id="status" label="Status" required>
+              <Select value={form.status} onValueChange={(v) => upd('status', v)}>
+                <SelectTrigger id="status" className="w-full"><SelectValue placeholder="Select status" /></SelectTrigger>
+                <SelectContent>
+                  {statuses.map((s) => <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field id="sqm" label="Carpet area (sq.m)">
+              <Input id="sqm" type="number" inputMode="decimal" step="0.01" {...bind('carpet_sqm')} />
+            </Field>
+            <Field id="sqft" label="Carpet area (sq.ft)">
+              <Input id="sqft" type="number" inputMode="decimal" step="0.01" {...bind('carpet_sqft')} />
+            </Field>
+          </div>
+        </Section>
 
-      {/* Save buttons, at the end of the form */}
-      <div className="lg:hidden">{actions}</div>
+        <Section title="Holder and agreement" sub="Who owns it and the agreement details">
+          <div className={GRID}>
+            <Field id="holder" label="Name of flat holder(s)" required={form.status !== 'For Sale'} className="sm:col-span-2">
+              <Input id="holder" placeholder="Joint holders: Name 1 & Name 2" {...bind('holder_name')} />
+            </Field>
+            <Field id="phone" label="Phone (for WhatsApp)">
+              <Input id="phone" type="tel" inputMode="numeric" placeholder="10-digit mobile number" {...bind('phone')} />
+            </Field>
+            <Field id="agr_no" label="Agreement number">
+              <Input id="agr_no" {...bind('agreement_no')} />
+            </Field>
+            <Field id="agr_date" label="Agreement date">
+              <Input id="agr_date" type="date" {...bind('agreement_date')} />
+            </Field>
+          </div>
+        </Section>
+
+        {/* Row 2 */}
+        <Section
+          title="Account (₹)"
+          sub={updatedAt ? `Last updated ${new Date(updatedAt).toLocaleString('en-IN')}` : 'Agreement value plus taxes and fees'}
+        >
+          <div className={GRID}>
+            {CHARGE_NAMES.map((n, i) => (
+              <Field key={n} id={`ch${i}`} label={n}>
+                <Input
+                  id={`ch${i}`}
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  value={charges[n] ?? ''}
+                  onChange={(e) => setCharges({ ...charges, [n]: e.target.value })}
+                />
+              </Field>
+            ))}
+          </div>
+          <div className="mt-5 flex items-center justify-between border-t pt-4 text-sm">
+            <span className="text-muted-foreground">Total (calculated)</span>
+            <span className="font-semibold tabular-nums">{inr(chargeTotal)}</span>
+          </div>
+        </Section>
+
+        {flatId ? children : (
+          <Section title="Documents" sub="Optional. Files upload when you save the flat">
+            <div className="space-y-3">
+              {SLOTS.map((slot) => (
+                <PendingSlot
+                  key={slot.kind}
+                  slot={slot}
+                  file={files[slot.kind]}
+                  onPick={(f) => setFiles({ ...files, [slot.kind]: f })}
+                />
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {/* Row 3: full width */}
+        {isSale && (
+          <Section
+            className="lg:col-span-2"
+            title="Installments"
+            sub="Percent of agreement value, per stage"
+          >
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  aria-pressed={active === t.id}
+                  onClick={() => pickTemplate(t)}
+                  className={cn(OPTION, active === t.id && OPTION_ON)}
+                >
+                  <span className="block text-sm font-medium">{t.name}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {t.template_items.length} installments
+                  </span>
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={isCustom}
+                onClick={() => setCustom(true)}
+                className={cn(OPTION, isCustom && OPTION_ON)}
+              >
+                <span className="block text-sm font-medium">Custom</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">Pick stages and percents</span>
+              </button>
+            </div>
+
+            {rowsI.length === 0 ? (
+              <p className="mt-4 rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                Pick a template, or choose Custom and add stages.
+              </p>
+            ) : (
+              <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+                {rowsI.map((s) => (
+                  <li key={s.id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
+                    {isCustom ? (
+                      <Select value={s.id} onValueChange={(v) => changeStage(s.id, v)}>
+                        <SelectTrigger className="h-9 min-w-0 flex-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {[s, ...unused].sort((a, b) => a.position - b.position).map((o) => (
+                            <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate text-sm">{s.name}</span>
+                    )}
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      aria-label={`${s.name} percent`}
+                      className="h-9 w-24 text-right"
+                      value={inst[s.id] ?? ''}
+                      onChange={(e) => setInst((p) => ({ ...p, [s.id]: e.target.value }))}
+                    />
+                    <span className="text-sm text-muted-foreground">%</span>
+                    {isCustom && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                        aria-label={`Remove ${s.name}`}
+                        onClick={() => removeStage(s.id)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {isCustom && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="mt-3 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary"
+                disabled={unused.length === 0}
+                onClick={addStage}
+              >
+                <Plus className="size-4" />
+                Add stage
+              </Button>
+            )}
+
+            <div className="mt-5">
+              <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={cn('transition-all duration-500', instTotal === 100 ? 'bg-primary' : 'bg-amber-500')}
+                  style={{ width: `${Math.max(0, Math.min(100, instTotal))}%` }}
+                />
+              </div>
+              <p className={cn('mt-2 text-sm tabular-nums', instTotal === 100 ? 'text-primary' : 'text-amber-600 dark:text-amber-400')}>
+                Total {instTotal}%{instTotal !== 100 && ' (should be 100%)'}
+              </p>
+            </div>
+          </Section>
+        )}
+
+        {/* Row 4: full width */}
+        {flatId && (
+          <Section className="lg:col-span-2" title="Delete flat" sub="Removes this flat and everything attached to it">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" variant="outline" className="text-destructive hover:text-destructive">
+                  <Trash2 className="size-4" />
+                  Delete flat
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this flat?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently deletes the flat with its charges, installments, payments and documents.
+                    This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={remove}>
+                    Delete flat
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </Section>
+        )}
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {/* Phone: save bar floats above the bottom tab bar */}
+      <div className="sticky bottom-[4.5rem] z-20 flex flex-col gap-2 rounded-xl border bg-card p-3 shadow-lg md:hidden">
+        {needed}
+        <div className="grid grid-cols-2 gap-3">
+          {cancelBtn}
+          {saveBtn}
+        </div>
+      </div>
     </form>
   )
 }

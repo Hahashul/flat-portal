@@ -1,171 +1,249 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { inr } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { FlatsSkeleton } from '@/components/skeletons'
 
-const STATUS_BADGE = {
-  Sold: 'badge-green', Tenant: 'badge-blue', Owner: 'badge-purple',
-  'For Sale': 'badge-amber', 'No status': 'badge-gray',
-}
-const CHIPS = ['All', 'Sold', 'Tenant', 'Owner', 'For Sale', 'No status']
+/*
+  Rules used on this page
+  - No big container. Every flat is its own soft card with space between cards.
+  - Same hover as every other card: lift 2px + soft shadow (off for reduced motion).
+  - Hover colour is neutral, never teal. Teal only for Add flat and the active toggle.
+  - Amounts in full (inr), plain text. Flats that are not sold show a dash.
+  - Phone: same cards, 5 shown, then Show all.
+*/
 
-function waLink(f) {
-  const first = (f.holder_name || '').split(/&|,/)[0].trim()
-  const msg = `Hello ${first}, as per the agreement the ${f.stage_name} stage is complete. Amount due: ${inr(f.due_now)}. Kindly arrange the payment. Thank you.`
-  return f.phone ? `https://wa.me/91${f.phone}?text=${encodeURIComponent(msg)}` : null
+const LIFT =
+  'transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_10px_28px_-10px_rgba(15,23,42,0.22)] motion-reduce:transition-none motion-reduce:hover:translate-y-0'
+
+// One grid for the header and every row, so columns always line up.
+const COLS = 'md:grid-cols-[minmax(0,1fr)_6.5rem_9rem_9rem_9rem]'
+
+const STATUS_STYLE = {
+  Sold: 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300',
+  Tenant: 'bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300',
+  Owner: 'bg-purple-100 text-purple-800 dark:bg-purple-500/15 dark:text-purple-300',
+  'For Sale': 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+  'No status': 'bg-muted text-muted-foreground',
 }
 
 function Status({ value }) {
   const s = value || 'No status'
-  return <span className={`badge ${STATUS_BADGE[s] || 'badge-gray'}`}>{s}</span>
-}
-
-function Paid({ f }) {
-  const agr = Number(f.agreement_value || 0)
-  if (!f.is_sale || !agr) return <span className="text-xs text-slate-400">—</span>
-  const pct = Math.min(100, (Number(f.received_amount) / agr) * 100)
   return (
-    <div className="w-full">
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div className="h-full bg-green-600 rounded-full" style={{ width: `${pct}%` }} />
-      </div>
-      <p className="text-xs text-slate-500 mt-1">{pct.toFixed(0)}% paid</p>
-    </div>
+    <Badge variant="secondary" className={cn('border-0 font-medium', STATUS_STYLE[s] || STATUS_STYLE['No status'])}>
+      {s}
+    </Badge>
   )
 }
 
-function Due({ f }) {
-  if (!f.is_sale) return <span className="text-xs text-slate-400">—</span>
-  const d = Number(f.due_now)
-  return <span className={`font-semibold ${d > 0 ? 'text-amber-700' : 'text-green-700'}`}>{d > 0 ? inr(d) : 'Up to date'}</span>
+function Money({ value }) {
+  if (value === null) return <span className="text-muted-foreground">—</span>
+  return <span className="tabular-nums">{inr(value)}</span>
 }
 
-function Wa({ f }) {
-  const wa = Number(f.due_now) > 0 && f.is_sale ? waLink(f) : null
-  if (!wa) return null
+function DueCell({ value }) {
+  if (value === null) return <span className="text-muted-foreground">—</span>
+  if (value <= 0) return <span className="text-muted-foreground">Up to date</span>
+  return <span className="font-semibold tabular-nums">{inr(value)}</span>
+}
+
+function SortHead({ label, k, sort, onSort, align = 'left' }) {
+  const active = sort.key === k
+  const Icon = !active ? ArrowUpDown : sort.dir === 'asc' ? ArrowUp : ArrowDown
   return (
-    <a href={wa} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-      className="btn !py-1.5">WhatsApp</a>
+    <button
+      onClick={() => onSort(k)}
+      aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+        active && 'text-foreground',
+        align === 'right' ? 'flex-row-reverse justify-self-end' : 'justify-self-start'
+      )}
+    >
+      {label}
+      <Icon className={cn('size-3.5', !active && 'opacity-50')} />
+    </button>
   )
 }
 
 export default function Flats() {
-  const router = useRouter()
   const [flats, setFlats] = useState([])
-  const [wings, setWings] = useState({})
+  const [wings, setWings] = useState([])
   const [loading, setLoading] = useState(true)
+  const [tax, setTax] = useState(false)
   const [search, setSearch] = useState('')
-  const [chip, setChip] = useState('All')
+  const [status, setStatus] = useState('all')
+  const [wing, setWing] = useState('all')
+  const [sort, setSort] = useState({ key: 'flat', dir: 'asc' })
+  const [showAll, setShowAll] = useState(false) // phone only
 
   useEffect(() => {
     async function load() {
       const [{ data: f }, { data: w }] = await Promise.all([
         supabase.from('flat_summary').select('*'),
-        supabase.from('wings').select('id, name'),
+        supabase.from('wings').select('id, name').order('name'),
       ])
-      setWings(Object.fromEntries((w || []).map((x) => [x.id, x.name])))
       setFlats(f || [])
+      setWings(w || [])
       setLoading(false)
     }
     load()
   }, [])
 
   const statusOf = (f) => f.status || 'No status'
-  const count = (c) => (c === 'All' ? flats.length : flats.filter((f) => statusOf(f) === c).length)
-  const q = search.toLowerCase()
-  const shown = flats
-    .filter((f) => chip === 'All' || statusOf(f) === chip)
-    .filter((f) => `${wings[f.wing_id] || ''}-${f.flat_no} ${f.holder_name || ''}`.toLowerCase().includes(q))
-    .sort((a, b) =>
-      (wings[a.wing_id] || '').localeCompare(wings[b.wing_id] || '') ||
-      a.flat_no.localeCompare(b.flat_no, undefined, { numeric: true })
-    )
-  const open = (id) => router.push(`/admin/flats/${id}`)
+
+  const rows = useMemo(() => {
+    const byFlat = (a, b) =>
+      a.wingName.localeCompare(b.wingName) || String(a.flat_no).localeCompare(String(b.flat_no), undefined, { numeric: true })
+    const num = (key) => (a, b) => (a[key] ?? -1) - (b[key] ?? -1)
+    const sorters = {
+      flat: byFlat,
+      status: (a, b) => statusOf(a).localeCompare(statusOf(b)),
+      total: num('total'),
+      received: num('received'),
+      due: num('due'),
+    }
+    const q = search.trim().toLowerCase()
+    return flats
+      .map((f) => ({
+        ...f,
+        wingName: wings.find((w) => w.id === f.wing_id)?.name || '?',
+        total: f.is_sale ? Number(f.total_amount || 0) : null,
+        received: f.is_sale ? Number(f.received_amount || 0) : null,
+        due: f.is_sale ? Number((tax ? f.due_with_charges : f.due_now) || 0) : null,
+      }))
+      .filter((f) => status === 'all' || statusOf(f) === status)
+      .filter((f) => wing === 'all' || f.wing_id === wing)
+      .filter((f) => `${f.wingName}-${f.flat_no} ${f.holder_name || ''}`.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const r = sorters[sort.key](a, b) || byFlat(a, b)
+        return sort.dir === 'asc' ? r : -r
+      })
+  }, [flats, wings, tax, search, status, wing, sort])
+
+  const statusOptions = useMemo(() => [...new Set(flats.map((f) => f.status || 'No status'))].sort(), [flats])
+
+  function onSort(key) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
+  }
+
+  if (loading) return <FlatsSkeleton />
+
+  const filtered = search || status !== 'all' || wing !== 'all'
+  const visible = showAll ? rows : rows.slice(0, 5)
 
   return (
-    <div className="space-y-5 max-w-6xl">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Flats</h1>
-        <Link href="/admin/flats/new" className="btn-primary">+ Add flat</Link>
+    <div className="mx-auto flex max-w-7xl flex-col gap-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Flats</h1>
+        <div className="flex items-center gap-3">
+          <Tabs value={tax ? 'charges' : 'basic'} onValueChange={(v) => setTax(v === 'charges')}>
+            <TabsList>
+              <TabsTrigger value="basic">Basic due</TabsTrigger>
+              <TabsTrigger value="charges">With charges</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button asChild><Link href="/admin/flats/new">Add flat</Link></Button>
+        </div>
       </div>
 
-      <input placeholder="Search by flat number or name" value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full sm:max-w-sm border border-slate-300 rounded-xl px-4 py-2.5 bg-white" />
-
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {CHIPS.filter((c) => c === 'All' || count(c) > 0).map((c) => (
-          <button key={c} onClick={() => setChip(c)}
-            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium border transition ${
-              chip === c ? 'bg-brand-600 text-white border-brand-600'
-                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
-            {c} <span className="opacity-70">{count(c)}</span>
-          </button>
-        ))}
+      {/* Filters */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search flat or name"
+            className="h-9 pl-9"
+          />
+        </div>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="h-9 w-full sm:w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            {statusOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={wing} onValueChange={setWing}>
+          <SelectTrigger className="h-9 w-full sm:w-32"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All wings</SelectItem>
+            {wings.map((w) => <SelectItem key={w.id} value={w.id}>Wing {w.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <p className="text-sm text-muted-foreground sm:ml-auto">
+          {rows.length === flats.length ? `${flats.length} flats` : `${rows.length} of ${flats.length} flats`}
+        </p>
       </div>
 
-      {loading ? <p className="text-slate-500">Loading…</p>
-        : shown.length === 0 ? <p className="text-slate-500">No flats match.</p> : (
-        <>
-          <div className="md:hidden space-y-3">
-            {shown.map((f) => (
-              <div key={f.id} onClick={() => open(f.id)} className="card card-hover p-4 cursor-pointer">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-bold">{wings[f.wing_id]}-{f.flat_no}
-                      <span className="font-normal text-slate-500 text-sm"> · {f.floor || '—'}</span></p>
-                    <p className="text-sm text-slate-600 truncate">{f.holder_name || 'No holder'}</p>
-                  </div>
-                  <Status value={f.status} />
-                </div>
-                {f.is_sale && (
-                  <div className="grid grid-cols-2 gap-4 mt-3 items-end">
-                    <Paid f={f} />
-                    <div className="text-right">
-                      <p className="text-xs text-slate-500">Due now</p>
-                      <Due f={f} />
-                    </div>
-                  </div>
-                )}
-                <div className="flex justify-end mt-3"><Wa f={f} /></div>
-              </div>
-            ))}
+      {rows.length === 0 ? (
+        <div className="rounded-xl border bg-card py-12 text-center">
+          <p className="font-medium">{filtered ? 'No flats match' : 'No flats yet'}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {filtered ? 'Try a different search or filter.' : 'Add your first flat to get started.'}
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {/* Sort row (desktop only). Same grid and padding as the rows below. */}
+          <div className={cn('hidden items-center gap-5 border border-transparent px-5 md:grid', COLS)}>
+            <SortHead label="Flat" k="flat" sort={sort} onSort={onSort} />
+            <SortHead label="Status" k="status" sort={sort} onSort={onSort} />
+            <SortHead label="Total" k="total" sort={sort} onSort={onSort} align="right" />
+            <SortHead label="Received" k="received" sort={sort} onSort={onSort} align="right" />
+            <SortHead label="Due" k="due" sort={sort} onSort={onSort} align="right" />
           </div>
 
-          <div className="hidden md:block card overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="text-left text-slate-500 bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="p-3">Flat</th><th className="p-3">Holder</th><th className="p-3">Status</th>
-                  <th className="p-3 w-32">Paid</th><th className="p-3 text-right">Due now</th>
-                  <th className="p-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((f) => (
-                  <tr key={f.id} onClick={() => open(f.id)}
-                    className="border-b border-slate-100 last:border-0 cursor-pointer hover:bg-brand-50 transition">
-                    <td className="p-3">
-                      <p className="font-bold">{wings[f.wing_id]}-{f.flat_no}</p>
-                      <p className="text-xs text-slate-500">{f.floor || '—'}</p>
-                    </td>
-                    <td className="p-3 max-w-xs truncate">{f.holder_name || '—'}</td>
-                    <td className="p-3"><Status value={f.status} /></td>
-                    <td className="p-3"><Paid f={f} /></td>
-                    <td className="p-3 text-right"><Due f={f} /></td>
-                    <td className="p-3 text-right whitespace-nowrap">
-                      <span className="inline-flex gap-2"><Wa f={f} />
-                        <Link href={`/admin/flats/${f.id}/edit`} onClick={(e) => e.stopPropagation()}
-                          className="btn !py-1.5">Edit</Link></span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+          {/* Desktop: all rows. Phone: 5 until Show all. */}
+          {rows.map((f, i) => (
+            <Link
+              key={f.id}
+              href={`/admin/flats/${f.id}`}
+              className={cn(
+                'items-center gap-3 rounded-xl border bg-card px-5 py-4 outline-none focus-visible:ring-2 focus-visible:ring-ring md:grid md:gap-5',
+                COLS,
+                LIFT,
+                i >= 5 && !showAll ? 'hidden md:grid' : 'flex'
+              )}
+            >
+              {/* Flat + name */}
+              <span className="min-w-0 flex-1 md:flex md:items-baseline md:gap-5">
+                <span className="block font-semibold md:w-20 md:shrink-0">{f.wingName}-{f.flat_no}</span>
+                <span className="block truncate text-sm text-muted-foreground md:text-base">{f.holder_name || 'No holder'}</span>
+              </span>
+
+              {/* Phone: due + status stacked */}
+              <span className="flex shrink-0 flex-col items-end gap-1.5 text-sm md:hidden">
+                <DueCell value={f.due} />
+                <Status value={f.status} />
+              </span>
+
+              {/* Desktop columns */}
+              <span className="hidden md:block"><Status value={f.status} /></span>
+              <span className="hidden whitespace-nowrap text-right md:block"><Money value={f.total} /></span>
+              <span className="hidden whitespace-nowrap text-right md:block"><Money value={f.received} /></span>
+              <span className="hidden whitespace-nowrap text-right md:block"><DueCell value={f.due} /></span>
+            </Link>
+          ))}
+
+          {rows.length > 5 && (
+            <div className="text-center md:hidden">
+              <Button variant="ghost" size="sm" onClick={() => setShowAll((v) => !v)}>
+                {showAll ? 'Show less' : `Show all ${rows.length} flats`}
+              </Button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

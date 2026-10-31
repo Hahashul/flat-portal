@@ -1,11 +1,21 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import Section from '@/components/Section'
 
 const SLOTS = [
   { kind: 'site_plan', label: 'Site plan', hint: 'The floor plan of this flat' },
   { kind: 'agreement', label: 'Agreement', hint: 'The signed agreement' },
 ]
+const GREEN = 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300'
 
 function Slot({ flatId, slot, docs, urls, onChange }) {
   const inputRef = useRef(null)
@@ -26,14 +36,14 @@ function Slot({ flatId, slot, docs, urls, onChange }) {
     const path = `flats/${flatId}/${Date.now()}-${safe}`
 
     const { error: upErr } = await supabase.storage.from('documents').upload(path, file)
-    if (upErr) { setError(upErr.message); setBusy(false); return }
+    if (upErr) { toast.error(upErr.message); setBusy(false); return }
 
     const { error: dbErr } = await supabase.from('documents').insert({
       flat_id: flatId, kind: slot.kind, file_name: file.name, storage_path: path,
     })
     if (dbErr) {
       await supabase.storage.from('documents').remove([path])
-      setError(dbErr.message); setBusy(false); return
+      toast.error(dbErr.message); setBusy(false); return
     }
 
     // The new file is saved, so it is now safe to remove the old one(s).
@@ -43,46 +53,67 @@ function Slot({ flatId, slot, docs, urls, onChange }) {
     }
     if (inputRef.current) inputRef.current.value = ''
     setBusy(false)
+    toast.success(`${slot.label} uploaded`)
     onChange()
   }
 
   async function remove() {
-    if (!confirm(`Delete the ${slot.label.toLowerCase()}?`)) return
     setBusy(true)
     await supabase.storage.from('documents').remove(docs.map((d) => d.storage_path))
     await supabase.from('documents').delete().in('id', docs.map((d) => d.id))
     setBusy(false)
+    toast.success(`${slot.label} deleted`)
     onChange()
   }
 
   return (
-    <div className="border border-slate-200 rounded-xl p-4">
-      <div className="flex items-start justify-between gap-3 mb-3">
+    <div className="rounded-lg border p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <p className="font-medium">{slot.label}</p>
-          <p className="text-xs text-slate-500">{slot.hint}</p>
+          <p className="text-sm font-medium">{slot.label}</p>
+          <p className="text-xs text-muted-foreground">{slot.hint}</p>
         </div>
-        {current
-          ? <span className="badge badge-green shrink-0">Uploaded</span>
-          : <span className="badge badge-gray shrink-0">Not uploaded</span>}
+        <Badge variant="secondary" className={cn('shrink-0 border-0 font-medium', current ? GREEN : 'bg-muted text-muted-foreground')}>
+          {current ? 'Uploaded' : 'Not uploaded'}
+        </Badge>
       </div>
 
       <input ref={inputRef} type="file" accept=".pdf,image/*" className="hidden"
         onChange={(e) => handleFile(e.target.files?.[0])} />
 
       {current ? (
-        <div className="bg-slate-50 rounded-xl px-3 py-2.5 space-y-2 sm:space-y-0 sm:flex sm:items-center sm:justify-between sm:gap-3">
-          <a href={urls[current.storage_path]} target="_blank" rel="noreferrer"
-            className="text-sm text-brand-700 font-medium underline truncate block">
+        <div className="flex flex-col gap-3 rounded-lg bg-muted/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <a
+            href={urls[current.storage_path]}
+            target="_blank"
+            rel="noreferrer"
+            className="block min-w-0 truncate text-sm font-medium text-primary hover:underline"
+          >
             {current.file_name}
           </a>
-          <div className="flex gap-2 shrink-0">
-            <button type="button" disabled={busy} onClick={() => inputRef.current?.click()}
-              className="btn !py-1.5 disabled:opacity-50">Replace</button>
-            <button type="button" disabled={busy} onClick={remove}
-              className="btn !py-1.5 !text-red-600 !border-red-200 hover:!bg-red-50 disabled:opacity-50">
-              Delete
-            </button>
+          <div className="flex shrink-0 gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => inputRef.current?.click()}>
+              Replace
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" size="sm" variant="outline" disabled={busy} className="text-destructive hover:text-destructive">
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete the {slot.label.toLowerCase()}?</AlertDialogTitle>
+                  <AlertDialogDescription>The file is removed for good. You can upload it again later.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={remove}>
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
       ) : (
@@ -90,18 +121,27 @@ function Slot({ flatId, slot, docs, urls, onChange }) {
           onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
           onDragLeave={() => setDrag(false)}
           onDrop={(e) => { e.preventDefault(); setDrag(false); handleFile(e.dataTransfer.files?.[0]) }}
-          className={`border-2 border-dashed rounded-xl py-6 text-center transition ${
-            drag ? 'border-brand-600 bg-brand-50' : 'border-slate-300 bg-slate-50'
-          }`}
+          className={cn(
+            'rounded-lg border-2 border-dashed py-6 text-center transition-colors',
+            drag ? 'border-primary bg-primary/5' : 'bg-muted/30'
+          )}
         >
-          <button type="button" disabled={busy} onClick={() => inputRef.current?.click()}
-            className="btn-primary disabled:opacity-50">Choose file</button>
-          <p className="text-xs text-slate-500 mt-2">or drag a PDF / image here · max 20 MB</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            className="bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary"
+            onClick={() => inputRef.current?.click()}
+          >
+            Choose file
+          </Button>
+          <p className="mt-2 text-xs text-muted-foreground">or drag a PDF / image here · max 20 MB</p>
         </div>
       )}
 
-      {busy && <p className="text-sm text-slate-500 mt-2">Working…</p>}
-      {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+      {busy && <p className="mt-2 text-sm text-muted-foreground">Working…</p>}
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
     </div>
   )
 }
@@ -126,17 +166,13 @@ export default function FlatDocuments({ flatId }) {
   useEffect(() => { load() }, [flatId])
 
   return (
-    <section className="card p-5 sm:p-6 space-y-4">
-      <div>
-        <h2 className="font-semibold">Documents</h2>
-        <p className="text-xs text-slate-500">
-          Files upload as soon as you choose them, and the customer sees them on their portal.
-        </p>
+    <Section title="Documents" sub="Files upload as soon as you choose them">
+      <div className="space-y-3">
+        {SLOTS.map((slot) => (
+          <Slot key={slot.kind} flatId={flatId} slot={slot}
+            docs={docs.filter((d) => d.kind === slot.kind)} urls={urls} onChange={load} />
+        ))}
       </div>
-      {SLOTS.map((slot) => (
-        <Slot key={slot.kind} flatId={flatId} slot={slot}
-          docs={docs.filter((d) => d.kind === slot.kind)} urls={urls} onChange={load} />
-      ))}
-    </section>
+    </Section>
   )
 }

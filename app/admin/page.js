@@ -8,7 +8,7 @@ import { inr } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+import { DashboardSkeleton } from '@/components/skeletons'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
@@ -144,20 +144,7 @@ export default function Dashboard() {
   const wname = (id) => wings.find((w) => w.id === id)?.name || '?'
   const shownDue = useCountUp(dueNow)
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-7xl space-y-4">
-        <Skeleton className="h-9 w-full" />
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
-        </div>
-        <div className="grid gap-4 lg:grid-cols-12">
-          <Skeleton className="h-96 rounded-xl lg:col-span-7" />
-          <Skeleton className="h-96 rounded-xl lg:col-span-5" />
-        </div>
-      </div>
-    )
-  }
+  if (loading) return <DashboardSkeleton />
 
   const legend = [
     { label: 'Received', value: received, stroke: 'stroke-primary', dot: 'bg-primary' },

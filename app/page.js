@@ -1,6 +1,7 @@
 'use client'
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 export default function Home() {
@@ -12,10 +13,16 @@ export default function Home() {
       if (!session) return router.replace('/login')
       const { data: profile } = await supabase
         .from('profiles').select('role').eq('id', session.user.id).single()
-      router.replace(profile?.role === 'admin' ? '/admin' : '/portal')
+      if (profile?.role === 'admin') return router.replace('/admin')
+      await supabase.auth.signOut()
+      router.replace('/login')
     }
     go()
   }, [router])
 
-  return <p className="p-8">Loading…</p>
+  return (
+    <div className="grid min-h-screen place-items-center bg-background">
+      <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
+    </div>
+  )
 }
