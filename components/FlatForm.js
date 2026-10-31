@@ -29,7 +29,7 @@ function Field({ label, required, className = '', children }) {
 
 function PendingSlot({ slot, file, onPick }) {
   const ref = useRef(null)
-  const [stages, setStages] = useState([])
+  const [error, setError] = useState('')
   const [templates, setTemplates] = useState([])
   const [inst, setInst] = useState({})
 
@@ -87,7 +87,7 @@ export default function FlatForm({ flatId, children }) {
   const [stages, setStages] = useState([])
   const [templates, setTemplates] = useState([])
   const [inst, setInst] = useState({})
-
+  
   useEffect(() => {
     async function load() {
       const [{ data: w }, { data: s }, { data: st }, { data: tp }] = await Promise.all([
