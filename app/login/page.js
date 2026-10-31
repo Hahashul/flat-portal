@@ -1,26 +1,38 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTheme } from 'next-themes'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function Login() {
   const router = useRouter()
+  const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => setMounted(true), [])
+
   async function handleLogin(e) {
     e.preventDefault()
-    setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (!EMAIL_RE.test(email.trim())) {
+      setError('Enter a valid email.')
+      return
+    }
+    setLoading(true)
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     if (error) {
       setError('Wrong email or password.')
       setLoading(false)
@@ -30,7 +42,16 @@ export default function Login() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-background p-4">
+    <main className="relative grid min-h-screen place-items-center bg-background p-4">
+      <div className="absolute right-4 top-4">
+        <Tabs value={mounted ? resolvedTheme : undefined} onValueChange={setTheme}>
+          <TabsList>
+            <TabsTrigger value="light">Light</TabsTrigger>
+            <TabsTrigger value="dark">Dark</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary text-2xl font-bold text-primary-foreground">
@@ -41,7 +62,7 @@ export default function Login() {
         </div>
 
         <Card className="gap-0 p-6 sm:p-8">
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} noValidate className="space-y-5">
             <div>
               <h2 className="text-base font-semibold">Sign in</h2>
               <p className="mt-1 text-sm text-muted-foreground">Use your admin email and password</p>
@@ -52,11 +73,13 @@ export default function Login() {
               <Input
                 id="email"
                 type="email"
-                required
                 autoFocus
                 autoComplete="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  setError('')
+                }}
                 className="h-10"
               />
             </div>
@@ -67,10 +90,12 @@ export default function Login() {
                 <Input
                   id="password"
                   type={showPw ? 'text' : 'password'}
-                  required
                   autoComplete="current-password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setError('')
+                  }}
                   className="h-10 pr-11"
                 />
                 <button

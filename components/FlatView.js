@@ -204,7 +204,7 @@ export default function FlatView({ flatId }) {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
         {/* Left column */}
         <div className="flex flex-col gap-4 lg:col-span-7">
           {f.is_sale && (

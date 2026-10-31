@@ -322,7 +322,7 @@ export default function FlatForm({ flatId, children }) {
       </div>
 
       {/* Two equal columns. Cards in the same row stretch to the same height. */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Row 1 */}
         <Section title="Flat details" sub="Where the flat is and how big">
           <div className={GRID}>
@@ -452,9 +452,9 @@ export default function FlatForm({ flatId, children }) {
                 Pick a template, or choose Custom and add stages.
               </p>
             ) : (
-              <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+              <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
                 {rowsI.map((s) => (
-                  <li key={s.id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
+                  <li key={s.id} className="flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 sm:gap-3">
                     {isCustom ? (
                       <Select value={s.id} onValueChange={(v) => changeStage(s.id, v)}>
                         <SelectTrigger className="h-9 min-w-0 flex-1"><SelectValue /></SelectTrigger>
@@ -473,11 +473,11 @@ export default function FlatForm({ flatId, children }) {
                       step="0.01"
                       min="0"
                       aria-label={`${s.name} percent`}
-                      className="h-9 w-24 text-right"
+                      className="h-9 w-20 shrink-0 text-right sm:w-24"
                       value={inst[s.id] ?? ''}
                       onChange={(e) => setInst((p) => ({ ...p, [s.id]: e.target.value }))}
                     />
-                    <span className="text-sm text-muted-foreground">%</span>
+                    <span className="shrink-0 text-sm text-muted-foreground">%</span>
                     {isCustom && (
                       <Button
                         type="button"
