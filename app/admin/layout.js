@@ -3,7 +3,7 @@ import { Fragment, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
-import { LayoutDashboard, Building2, Plus, Layers, FolderOpen, LogOut, Search, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, Building2, Plus, Layers, FolderOpen, LogOut, Search, Sun, Moon, Users } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -33,6 +33,7 @@ const links = [
   { href: '/admin/flats/new', label: 'Add flat', icon: Plus },
   { href: '/admin/files', label: 'Files', icon: FolderOpen },
   { href: '/admin/stages', label: 'Stages', icon: Layers },
+  { href: '/admin/customers', label: 'Customers', icon: Users },
 ]
 
 function isActive(l, pathname) {
@@ -44,6 +45,7 @@ function isActive(l, pathname) {
 function crumbs(pathname, driveTrail = []) {
   const p = pathname.replace(/^\/admin\/?/, '').split('/').filter(Boolean)
   if (p[0] === 'stages') return [{ label: 'Stages' }]
+  if (p[0] === 'customers') return [{ label: 'Customers' }]
   if (p[0] === 'files') {
     if (!driveTrail.length) return [{ label: 'Files' }]
     return [
