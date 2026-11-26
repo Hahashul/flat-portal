@@ -14,6 +14,7 @@ export default function Home() {
       const { data: profile } = await supabase
         .from('profiles').select('role').eq('id', session.user.id).single()
       if (profile?.role === 'admin') return router.replace('/admin')
+      if (profile?.role === 'customer' || profile?.role === 'demo') return router.replace('/app')
       await supabase.auth.signOut()
       router.replace('/login')
     }

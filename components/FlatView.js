@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { Check, MessageCircle, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useWorkspace } from '@/lib/workspace'
 import { inr } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
@@ -63,6 +64,7 @@ function Row({ label, children }) {
 }
 
 export default function FlatView({ flatId }) {
+  const { readOnly } = useWorkspace()
   const [d, setD] = useState(null)
   const [tick, setTick] = useState(0)
   const [tax, setTax] = useState(false)
@@ -142,7 +144,7 @@ export default function FlatView({ flatId }) {
     return (
       <div className="mx-auto max-w-7xl py-16 text-center">
         <p className="font-medium">Flat not found</p>
-        <Button asChild variant="ghost" className="mt-3"><Link href="/admin/flats">Back to flats</Link></Button>
+        <Button asChild variant="ghost" className="mt-3"><Link href="/app/flats">Back to flats</Link></Button>
       </div>
     )
   }
@@ -222,7 +224,7 @@ export default function FlatView({ flatId }) {
               </TabsList>
             </Tabs>
           )}
-          <Button asChild><Link href={`/admin/flats/${f.id}/edit`}>Edit flat</Link></Button>
+          {!readOnly && <Button asChild><Link href={`/app/flats/${f.id}/edit`}>Edit flat</Link></Button>}
         </div>
       </div>
 
@@ -279,12 +281,12 @@ export default function FlatView({ flatId }) {
               flush
               title="Payments"
               sub={pays.length === 0 ? 'Nothing received yet' : `${pays.length} ${pays.length === 1 ? 'payment' : 'payments'} · ${inr(received)} received`}
-              action={
+              action={!readOnly && (
                 <Button size="sm" variant="ghost" className={SOFT} onClick={() => setAdding(true)}>
                   <Plus className="size-4" />
                   Add payment
                 </Button>
-              }
+              )}
             >
               {pays.length === 0 ? (
                 <p className="border-t px-5 py-10 text-center text-sm text-muted-foreground sm:px-6">
@@ -306,6 +308,7 @@ export default function FlatView({ flatId }) {
                           {fmtDate(p.paid_on)}{p.note ? ` · ${p.note}` : ''}
                         </p>
                       </div>
+                      {!readOnly && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -315,6 +318,7 @@ export default function FlatView({ flatId }) {
                       >
                         <Trash2 className="size-4" />
                       </Button>
+                      )}
                     </li>
                   ))}
                   {pays.length > 5 && (

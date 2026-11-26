@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { Plus, Download, Trash2, UserPlus, KeyRound, Copy, RefreshCw } from 'lucide-react'
+import Link from 'next/link'
+import { Plus, Download, Trash2, UserPlus, KeyRound, Copy, RefreshCw, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
@@ -115,10 +116,6 @@ export default function CustomersPage() {
       } else if (type === 'reset') {
         await api('PATCH', '/api/admin/users', { userId: user.id, action: 'reset_password', password: form.password })
         setDone({ title: 'Password changed', email: user.email, password: form.password })
-      } else if (type === 'removeUser') {
-        await api('DELETE', '/api/admin/users', { userId: user.id })
-        toast.success('Login removed')
-        setDialog(null)
       } else if (type === 'delete') {
         const r = await api('DELETE', '/api/admin/customers', { orgId: org.id, confirmName: form.confirm })
         toast.success(`${org.name} deleted`)
@@ -155,7 +152,7 @@ export default function CustomersPage() {
   const type = dialog?.type
   const titles = {
     create: 'New customer', addUser: `Add a login to ${dialog?.org?.name}`,
-    reset: 'Set a new password', removeUser: 'Remove this login', delete: `Delete ${dialog?.org?.name}`,
+    reset: 'Set a new password', delete: `Delete ${dialog?.org?.name}`,
   }
 
   return (
@@ -176,14 +173,20 @@ export default function CustomersPage() {
           key={org.id}
           title={<span className="flex items-center gap-2">{org.name}{org.is_demo && <Badge variant="secondary">Demo</Badge>}</span>}
           sub={`${org.projects} project${org.projects === 1 ? '' : 's'} · ${org.flats} flat${org.flats === 1 ? '' : 's'} · created ${when(org.created_at)}`}
-          action={!org.is_demo && (
-            <div className="flex shrink-0 gap-2">
-              <Button size="sm" variant="outline" onClick={() => open('addUser', org)}><UserPlus className="size-4" /> Add login</Button>
-              <Button size="sm" variant="outline" onClick={() => exportOrg(org)}><Download className="size-4" /> Export</Button>
-              <Button size="sm" variant="outline" onClick={() => open('delete', org)}><Trash2 className="size-4" /> Delete</Button>
+          action={(
+            <div className="grid w-full shrink-0 grid-cols-2 gap-2 sm:w-auto sm:grid-cols-3">
+              <Button asChild size="sm"><Link href={`/app?org=${org.id}`}><ExternalLink className="size-4" /> Open workspace</Link></Button>
+              {!org.is_demo && (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => open('addUser', org)}><UserPlus className="size-4" /> Add login</Button>
+                  <Button size="sm" variant="outline" onClick={() => exportOrg(org)}><Download className="size-4" /> Export</Button>
+                  <Button size="sm" variant="outline" onClick={() => open('delete', org)}><Trash2 className="size-4" /> Delete</Button>
+                </>
+              )}
             </div>
           )}
           flush
+          stackAction
         >
           {org.users.length === 0 ? (
             <p className="px-5 pb-5 text-sm text-muted-foreground sm:px-6">No logins.</p>
@@ -191,7 +194,7 @@ export default function CustomersPage() {
             <ul className="divide-y border-t">
               {org.users.map((u) => (
                 <li key={u.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3 sm:px-6">
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-48 flex-1">
                     <p className="truncate text-sm">{u.email || u.id}</p>
                     <p className="text-sm text-muted-foreground">
                       <span className="inline-flex items-center gap-2">
@@ -204,7 +207,6 @@ export default function CustomersPage() {
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => open('reset', org, u)}><KeyRound className="size-4" /> Password</Button>
                     <Button size="sm" variant="outline" onClick={() => toggle(u)}>{u.disabled ? 'Enable' : 'Disable'}</Button>
-                    {!org.is_demo && <Button size="sm" variant="outline" onClick={() => open('removeUser', org, u)}>Remove</Button>}
                   </div>
                 </li>
               ))}
@@ -242,11 +244,6 @@ export default function CustomersPage() {
                     This permanently deletes all of {dialog.org.name}&rsquo;s projects, flats, payments, files and logins. It cannot be undone.
                   </DialogDescription>
                 )}
-                {type === 'removeUser' && (
-                  <DialogDescription>
-                    {dialog.user.email} will no longer be able to sign in. The organization&rsquo;s data stays.
-                  </DialogDescription>
-                )}
                 {type === 'reset' && <DialogDescription>{dialog.user.email}</DialogDescription>}
               </DialogHeader>
 
@@ -278,10 +275,10 @@ export default function CustomersPage() {
                 <Button type="button" variant="outline" onClick={close}>Cancel</Button>
                 <Button
                   type="submit"
-                  variant={type === 'delete' || type === 'removeUser' ? 'destructive' : 'default'}
+                  variant={type === 'delete' ? 'destructive' : 'default'}
                   disabled={busy || (type === 'delete' && form.confirm !== dialog.org.name)}
                 >
-                  {busy ? 'Working…' : type === 'delete' ? 'Delete permanently' : type === 'removeUser' ? 'Remove login' : type === 'reset' ? 'Set password' : 'Create'}
+                  {busy ? 'Working…' : type === 'delete' ? 'Delete permanently' : type === 'reset' ? 'Set password' : 'Create'}
                 </Button>
               </DialogFooter>
             </form>

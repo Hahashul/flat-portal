@@ -21,6 +21,7 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [demoLoading, setDemoLoading] = useState(false)
 
   useEffect(() => setMounted(true), [])
 
@@ -41,6 +42,24 @@ export default function Login() {
     router.replace('/')
   }
 
+  async function handleDemo() {
+    setError('')
+    setDemoLoading(true)
+    try {
+      const res = await fetch('/api/demo', { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error()
+      const { error } = await supabase.auth.setSession({
+        access_token: body.access_token, refresh_token: body.refresh_token,
+      })
+      if (error) throw error
+      router.replace('/')
+    } catch {
+      setError('The demo is not available right now.')
+      setDemoLoading(false)
+    }
+  }
+
   return (
     <main className="relative grid min-h-screen place-items-center bg-background p-4">
       <div className="absolute right-4 top-4">
@@ -58,14 +77,13 @@ export default function Login() {
             F
           </span>
           <h1 className="mt-4 text-2xl font-semibold tracking-tight">Flat Portal</h1>
-          <p className="mt-1 text-sm text-muted-foreground">860 Shukrawar Peth</p>
         </div>
 
         <Card className="gap-0 p-6 sm:p-8">
           <form onSubmit={handleLogin} noValidate className="space-y-5">
             <div>
               <h2 className="text-base font-semibold">Sign in</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Use your admin email and password</p>
+              <p className="mt-1 text-sm text-muted-foreground">Enter your email and password</p>
             </div>
 
             <div className="space-y-2">
@@ -120,6 +138,11 @@ export default function Login() {
               {loading ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
+
+          <Button type="button" variant="outline" className="mt-3 h-10 w-full" onClick={handleDemo} disabled={demoLoading || loading}>
+            {demoLoading && <Loader2 className="size-4 animate-spin" />}
+            {demoLoading ? 'Opening demo…' : 'Try demo'}
+          </Button>
         </Card>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">

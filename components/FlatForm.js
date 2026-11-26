@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Plus, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useWorkspace } from '@/lib/workspace'
 import { inr } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -96,6 +97,7 @@ function PendingSlot({ slot, file, onPick }) {
 
 export default function FlatForm({ flatId, children }) {
   const router = useRouter()
+  const { projectId, orgId, readOnly } = useWorkspace()
   const [wings, setWings] = useState([])
   const [statuses, setStatuses] = useState([])
   const [form, setForm] = useState(empty)
@@ -112,17 +114,20 @@ export default function FlatForm({ flatId, children }) {
 
   useEffect(() => {
     async function load() {
+      if (readOnly) return router.replace('/app/flats')
       const [{ data: w }, { data: s }, { data: st }, { data: tp }] = await Promise.all([
-        supabase.from('wings').select('id, name').order('name'),
+        supabase.from('wings').select('id, name').eq('project_id', projectId).order('name'),
         supabase.from('statuses').select('name, counts_in_sales').order('name'),
-        supabase.from('stages').select('id, name, position').order('position'),
+        supabase.from('stages').select('id, name, position').eq('project_id', projectId).order('position'),
         supabase.from('installment_templates')
-          .select('id, name, template_items(stage_id, percent)').order('name'),
+          .select('id, name, template_items(stage_id, percent)').eq('org_id', orgId).order('name'),
       ])
       setWings(w || [])
       setStatuses(s || [])
       setStages(st || [])
-      setTemplates(tp || [])
+      // templates belong to the organization, stages to the project: keep the ones that fit
+      const stageIds = new Set((st || []).map((x) => x.id))
+      setTemplates((tp || []).filter((t) => t.template_items?.length && t.template_items.every((i) => stageIds.has(i.stage_id))))
 
       if (flatId) {
         const [{ data: flat }, { data: ch }, { data: fi }] = await Promise.all([
@@ -278,10 +283,10 @@ export default function FlatForm({ flatId, children }) {
 
     if (uploadFailed) {
       toast.error('Flat saved, but a file did not upload. Please upload it again here.')
-      return router.push(`/admin/flats/${id}/edit`)
+      return router.push(`/app/flats/${id}/edit`)
     }
     toast.success('Flat saved')
-    router.push(flatId ? `/admin/flats/${flatId}` : '/admin/flats')
+    router.push(flatId ? `/app/flats/${flatId}` : '/app/flats')
   }
 
   async function remove() {
@@ -290,12 +295,13 @@ export default function FlatForm({ flatId, children }) {
     const { error: err } = await supabase.from('flats').delete().eq('id', flatId)
     if (err) return toast.error(err.message)
     toast.success('Flat deleted')
-    router.push('/admin/flats')
+    router.push('/app/flats')
   }
 
+  if (readOnly) return null
   if (loading) return <FormSkeleton />
 
-  const cancel = () => router.push(flatId ? `/admin/flats/${flatId}` : '/admin/flats')
+  const cancel = () => router.push(flatId ? `/app/flats/${flatId}` : '/app/flats')
   const needed = missing.length > 0 && (
     <p className="text-xs text-muted-foreground">Still needed: {missing.join(', ')}</p>
   )

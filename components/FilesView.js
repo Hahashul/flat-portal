@@ -8,6 +8,7 @@ import {
   Loader2, Search, Trash2, Upload, X,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useWorkspace } from '@/lib/workspace'
 import { cn } from '@/lib/utils'
 import { LIFT } from '@/components/Section'
 import { Button } from '@/components/ui/button'
@@ -62,7 +63,7 @@ function iconFor(item) {
   return FileIcon
 }
 
-function ItemCard({ item, view, meta, where, onOpen, onRename, onDownload, onDelete }) {
+function ItemCard({ item, view, meta, where, readOnly, onOpen, onRename, onDownload, onDelete }) {
   const Icon = iconFor(item)
   const isFile = item.kind === 'file'
 
@@ -90,6 +91,8 @@ function ItemCard({ item, view, meta, where, onOpen, onRename, onDownload, onDel
             <Download className="mr-2 size-4" /> Download
           </DropdownMenuItem>
         )}
+        {!readOnly && (
+          <>
         <DropdownMenuItem onClick={onRename}>
           <Pencil className="mr-2 size-4" /> Rename
         </DropdownMenuItem>
@@ -97,6 +100,8 @@ function ItemCard({ item, view, meta, where, onOpen, onRename, onDownload, onDel
         <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
           <Trash2 className="mr-2 size-4 text-destructive" /> Delete
         </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -154,6 +159,7 @@ function ItemCard({ item, view, meta, where, onOpen, onRename, onDownload, onDel
 }
 
 export default function FilesView() {
+  const { orgId, readOnly } = useWorkspace()
   const router = useRouter()
   const params = useSearchParams()
   const folderId = params.get('f') || null
@@ -180,13 +186,13 @@ export default function FilesView() {
 
   useEffect(() => {
     let off = false
-    supabase.from('drive_items').select('*').order('name').then(({ data, error }) => {
+    supabase.from('drive_items').select('*').eq('org_id', orgId).order('name').then(({ data, error }) => {
       if (off) return
       if (error) toast.error(error.message)
       setItems(data || [])
     })
     return () => { off = true }
-  }, [tick])
+  }, [tick, orgId])
 
   const byId = useMemo(() => new Map((items || []).map((i) => [i.id, i])), [items])
   const current = folderId ? byId.get(folderId) : null
@@ -201,7 +207,7 @@ export default function FilesView() {
     return out
   }, [current, byId])
 
-  // Tell the top bar (app/admin/layout.js) where we are, so it can show the full path
+  // Tell the top bar (app/app/layout.js) where we are, so it can show the full path
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('files-trail', {
       detail: trail.map((t) => ({ id: t.id, name: t.name })),
@@ -247,7 +253,7 @@ export default function FilesView() {
 
   function go(id) {
     setQ('')
-    router.push(id ? `/admin/files?f=${id}` : '/admin/files')
+    router.push(id ? `/app/files?f=${id}` : '/app/files')
   }
 
   // Images and PDFs open inside the app. Other types (Word, Excel...) download.
@@ -281,6 +287,7 @@ export default function FilesView() {
   const openItem = (item) => (item.kind === 'folder' ? go(item.id) : openFile(item))
 
   async function upload(fileList) {
+    if (readOnly) return
     const files = Array.from(fileList || [])
     if (!files.length) return
     const good = []
@@ -303,6 +310,7 @@ export default function FilesView() {
       if (upErr) { toast.error(`${f.name}: ${upErr.message}`); continue }
       const { error: dbErr } = await supabase.from('drive_items').insert({
         id, kind: 'file', name: f.name, parent_id: folderId, storage_path: path,
+        ...(folderId ? {} : { org_id: orgId }),
         size: f.size, mime_type: f.type || null,
       })
       if (dbErr) {
@@ -334,7 +342,7 @@ export default function FilesView() {
     setSaving(true)
     const { error } = isRename
       ? await supabase.from('drive_items').update({ name }).eq('id', naming.item.id)
-      : await supabase.from('drive_items').insert({ kind: 'folder', name, parent_id: folderId })
+      : await supabase.from('drive_items').insert({ kind: 'folder', name, parent_id: folderId, ...(folderId ? {} : { org_id: orgId }) })
     setSaving(false)
     if (error) return toast.error(error.message)
     toast.success(isRename ? 'Renamed' : 'Folder created')
@@ -443,6 +451,8 @@ export default function FilesView() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {!readOnly && (
+            <>
           <Button variant="ghost" className={SOFT} onClick={() => setNaming({ mode: 'new', value: '' })}>
             <FolderPlus className="size-4" />
             New folder
@@ -451,6 +461,8 @@ export default function FilesView() {
             <Upload className="size-4" />
             Upload
           </Button>
+            </>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -508,6 +520,7 @@ export default function FilesView() {
                   ? `${counts.get(item.id) || 0} ${counts.get(item.id) === 1 ? 'item' : 'items'}`
                   : `${fmtSize(item.size)} · ${fmtDate(item.created_at)}`
               }
+              readOnly={readOnly}
               onOpen={() => openItem(item)}
               onDownload={() => downloadFile(item)}
               onRename={() => setNaming({ mode: 'rename', item, value: item.name })}

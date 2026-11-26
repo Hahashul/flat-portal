@@ -67,17 +67,3 @@ export async function PATCH(request) {
 
   return fail('Unknown action')
 }
-
-/* DELETE { userId } -> remove one login (the organization and its data stay) */
-export async function DELETE(request) {
-  const auth = await requireAdmin(request)
-  if (auth.error) return auth.error
-
-  const { userId } = await readBody(request)
-  const t = await loadTarget(userId, auth.user.id)
-  if (t.error) return t.error
-
-  const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
-  if (error) return fail(error.message, 500)
-  return NextResponse.json({ ok: true })
-}

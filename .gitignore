@@ -42,3 +42,4 @@ next-env.d.ts
 
 flats_import.json
 *.xlsx
+*.zip
